@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: quant-app
+    runtime: docker
+    plan: starter
+    region: singapore
+    healthCheckPath: /
+    envVars:
+      - key: APP_DATA_DIR
+        value: /var/data
+      - key: FLET_FORCE_WEB_SERVER
+        value: "true"
+      - key: FLET_SERVER_IP
+        value: 0.0.0.0
+      - key: FLET_SERVER_PORT
+        value: "10000"
+      - key: FINMIND_TOKEN
+        sync: false
+    disk:
+      name: quant-data
+      mountPath: /var/data
+      sizeGB: 1
