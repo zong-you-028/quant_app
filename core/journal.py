@@ -24,8 +24,10 @@ import datetime as _dt
 
 import pandas as pd
 
-import config
-from core.data_pipeline import get_conn, load_ohlcv, get_stock_name, ensure_data
+from core.data_pipeline import load_ohlcv, get_stock_name, ensure_data
+from core.journal_storage import dialect, get_journal_conn, insert_id
+
+get_conn = get_journal_conn
 
 
 # DCA 頻率 -> 中文標籤(供 UI;也是合法值白名單)
@@ -70,10 +72,12 @@ def _advance_date(d: _dt.date, freq: str) -> _dt.date:
 def init_journal() -> None:
     """建立/升級 trades、dca_plans、asset_history 三張表(若不存在)。"""
     conn = get_conn()
+    pg = dialect(conn) == "postgres"
+    id_type = "BIGSERIAL PRIMARY KEY" if pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
     conn.execute(
-        """
+        f"""
         CREATE TABLE IF NOT EXISTS trades (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         {id_type},
             symbol     TEXT NOT NULL,
             name       TEXT,
             amount     REAL NOT NULL,        -- 投入金額(新台幣)
@@ -90,9 +94,9 @@ def init_journal() -> None:
         """
     )
     conn.execute(
-        """
+        f"""
         CREATE TABLE IF NOT EXISTS dca_plans (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         {id_type},
             symbol     TEXT NOT NULL,
             name       TEXT,
             amount     REAL NOT NULL,        -- 每期投入金額
@@ -104,9 +108,9 @@ def init_journal() -> None:
         """
     )
     conn.execute(
-        """
+        f"""
         CREATE TABLE IF NOT EXISTS asset_history (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            id           {id_type},
             ts           TEXT NOT NULL,
             invested     REAL,
             market_value REAL,
@@ -117,7 +121,13 @@ def init_journal() -> None:
         """
     )
     # 舊版 trades 表升級:補上新欄(若不存在)
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(trades)").fetchall()]
+    if pg:
+        cols = [r[0] for r in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'trades'"
+        ).fetchall()]
+    else:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(trades)").fetchall()]
     if "source" not in cols:
         conn.execute("ALTER TABLE trades ADD COLUMN source TEXT DEFAULT 'manual'")
     if "stop_loss" not in cols:
@@ -187,7 +197,7 @@ def add_buy(symbol: str, amount: float, buy_price: float,
     conn = get_conn()
     # 來源=輪動推薦者,最近輪替日 = 買入日(之後每月續抱時更新)
     last_rotation = buy_time.split(" ")[0] if source == "rotation" else None
-    cur = conn.execute(
+    new_id = insert_id(conn,
         "INSERT INTO trades (symbol, name, amount, shares, buy_price, buy_time, "
         "status, source, stop_loss, take_profit, note, last_rotation) "
         "VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)",
@@ -195,7 +205,6 @@ def add_buy(symbol: str, amount: float, buy_price: float,
          stop_loss, take_profit, (note or "").strip() or None, last_rotation),
     )
     conn.commit()
-    new_id = cur.lastrowid
     conn.close()
     return int(new_id)
 
@@ -361,13 +370,12 @@ def sell_partial(trade_id: int, sell_shares: float, sell_price: float,
     sold_amount = float(amount) * frac
     sell_time = sell_time or _now()
     conn = get_conn()
-    cur = conn.execute(
+    new_id = insert_id(conn,
         "INSERT INTO trades (symbol, name, amount, shares, buy_price, buy_time, "
         "sell_price, sell_time, status, source, stop_loss, take_profit, note) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'closed', ?, ?, ?, ?)",
         (sym, name, sold_amount, sell_shares, bp, bt, sell_price, sell_time,
          source, sl, tp, note))
-    new_id = cur.lastrowid
     conn.execute(
         "UPDATE trades SET amount = ?, shares = ? WHERE id = ?",
         (float(amount) - sold_amount, shares - sell_shares, int(trade_id)))
@@ -546,13 +554,12 @@ def add_dca_plan(symbol: str, amount: float, freq: str = "monthly",
     name = get_stock_name(symbol) or ""
     init_journal()
     conn = get_conn()
-    cur = conn.execute(
+    pid = insert_id(conn,
         "INSERT INTO dca_plans (symbol, name, amount, freq, next_date, active, created_at) "
         "VALUES (?, ?, ?, ?, ?, 1, ?)",
         (symbol, name, amount, freq, sd.strftime("%Y-%m-%d"), _now()),
     )
     conn.commit()
-    pid = cur.lastrowid
     conn.close()
     return int(pid)
 

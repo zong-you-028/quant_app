@@ -15,4 +15,6 @@ services:
         value: "10000"
       - key: FINMIND_TOKEN
         sync: false
+      - key: JOURNAL_DATABASE_URL
+        sync: false
 
