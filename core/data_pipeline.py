@@ -8,7 +8,10 @@ data_pipeline.py - 資料層
   4. seed_sample_data():無真實資料時產生合成資料,讓系統可立即執行
 """
 import datetime as _dt
+import gzip
+import os
 import sqlite3
+import tempfile
 import threading
 import numpy as np
 import pandas as pd
@@ -19,6 +22,7 @@ import config
 
 _INITIALIZED_PATHS = set()
 _INIT_LOCK = threading.Lock()
+_MARKET_SEED_VERSION = "2026-08-28-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +32,47 @@ def get_conn():
     """回傳 SQLite 連線(connection)。每次使用後請自行 close。"""
     conn = sqlite3.connect(config.DB_PATH)
     return conn
+
+
+def _hydrate_market_seed(conn) -> None:
+    """Merge the bundled real-data seed into the actual APP_DATA_DIR database."""
+    seed_gz = os.path.join(config.BASE_DIR, "data_seed", "market.db.gz")
+    if not os.path.exists(seed_gz):
+        return
+    conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+    row = conn.execute(
+        "SELECT value FROM meta WHERE key = ?", ("market_seed_version",)
+    ).fetchone()
+    if row and row[0] == _MARKET_SEED_VERSION:
+        return
+
+    temp_path = None
+    attached = False
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as temp_file:
+            temp_path = temp_file.name
+            with gzip.open(seed_gz, "rb") as source:
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    temp_file.write(chunk)
+        conn.execute("ATTACH DATABASE ? AS market_seed", (temp_path,))
+        attached = True
+        for table in ("ohlcv", "chip_weekly", "stock_info"):
+            conn.execute(
+                f"INSERT OR REPLACE INTO {table} SELECT * FROM market_seed.{table}"
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+            ("market_seed_version", _MARKET_SEED_VERSION),
+        )
+        conn.commit()
+    finally:
+        if attached:
+            conn.execute("DETACH DATABASE market_seed")
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 def init_db():
@@ -71,6 +116,7 @@ def init_db():
         """
     )
     conn.commit()
+    _hydrate_market_seed(conn)
     conn.close()
     _INITIALIZED_PATHS.add(config.DB_PATH)
 
