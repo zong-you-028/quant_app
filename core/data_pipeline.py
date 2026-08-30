@@ -9,11 +9,16 @@ data_pipeline.py - 資料層
 """
 import datetime as _dt
 import sqlite3
+import threading
 import numpy as np
 import pandas as pd
 import requests
 
 import config
+
+
+_INITIALIZED_PATHS = set()
+_INIT_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +72,17 @@ def init_db():
     )
     conn.commit()
     conn.close()
+    _INITIALIZED_PATHS.add(config.DB_PATH)
+
+
+def ensure_db() -> None:
+    """確保新建的 SQLite 檔已具備行情資料表。"""
+    path = config.DB_PATH
+    if path in _INITIALIZED_PATHS:
+        return
+    with _INIT_LOCK:
+        if path not in _INITIALIZED_PATHS:
+            init_db()
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +90,7 @@ def init_db():
 # ---------------------------------------------------------------------------
 def load_ohlcv(symbol: str) -> pd.DataFrame:
     """讀取某標的日頻 OHLCV,以 DatetimeIndex 排序回傳。"""
+    ensure_db()
     conn = get_conn()
     df = pd.read_sql_query(
         "SELECT date, open, high, low, close, volume FROM ohlcv "
@@ -90,6 +107,7 @@ def load_ohlcv(symbol: str) -> pd.DataFrame:
 
 def load_chip_weekly(symbol: str) -> pd.DataFrame:
     """讀取某標的週頻籌碼,以 DatetimeIndex 排序回傳。"""
+    ensure_db()
     conn = get_conn()
     df = pd.read_sql_query(
         "SELECT date, big_shares, total_shares FROM chip_weekly "
@@ -106,6 +124,7 @@ def load_chip_weekly(symbol: str) -> pd.DataFrame:
 
 def has_symbol(symbol: str) -> bool:
     """檢查 DB 是否已有此標的的日頻資料。"""
+    ensure_db()
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT 1 FROM ohlcv WHERE symbol = ? LIMIT 1", (symbol,))
@@ -507,6 +526,7 @@ def _meta_set(key: str, value: str):
 
 def last_ohlcv_date(symbol: str):
     """DB 內某檔最後一筆日期(pd.Timestamp);查無回 None。"""
+    ensure_db()
     conn = get_conn()
     row = conn.execute("SELECT MAX(date) FROM ohlcv WHERE symbol = ?",
                        (symbol,)).fetchone()

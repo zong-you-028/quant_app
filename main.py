@@ -33,9 +33,11 @@ matplotlib.rcParams["axes.unicode_minus"] = False   # 負號正常顯示(避免�
 import flet as ft
 
 import config
-from core.data_pipeline import ensure_data, get_stock_name, update_symbols
+from core.data_pipeline import ensure_data, ensure_db, get_stock_name, update_symbols
 from core import rotation
 from core import journal
+
+ensure_db()
 
 # --- 新舊版相容:Colors / Icons / Border(新版大寫、舊版小寫)---
 C = getattr(ft, "Colors", None) or getattr(ft, "colors", None)
