@@ -185,6 +185,38 @@ def test_update_partial_reopen():
     journal.delete_trade(nid)
 
 
+def test_current_assets_cash_and_transactions():
+    """期初持倉不動現金；新買賣同步現金，持倉按標的彙總。"""
+    journal.init_journal()
+    base_cash = journal.cash_balance()
+    before_ids = {t["id"] for t in journal.list_trades()}
+    journal.set_cash_balance(base_cash + 100000)
+
+    initial_id = journal.add_current_asset("TEST", 10, 100, "2026-08-01")
+    initial = next(t for t in journal.list_trades() if t["id"] == initial_id)
+    assert initial["source"] == "initial"
+    assert abs(journal.cash_balance() - (base_cash + 100000)) < 1e-6
+
+    journal.record_buy("TEST", 5, 120, "2026-08-02")
+    assert abs(journal.cash_balance() - (base_cash + 99400)) < 1e-6
+    closed_ids = journal.record_sell("TEST", 8, 150, "2026-08-03")
+    assert closed_ids
+    assert abs(journal.cash_balance() - (base_cash + 100600)) < 1e-6
+
+    position = next(p for p in journal.positions() if p["symbol"] == "TEST")
+    assert abs(position["shares"] - 7) < 1e-9
+    assert abs(position["cost"] - 800) < 1e-6
+    assert abs(position["average_cost"] - (800 / 7)) < 1e-6
+    s = journal.summary()
+    assert abs(s["cash"] - journal.cash_balance()) < 1e-6
+    assert abs(s["total_assets"] - (s["market_value"] + s["cash"])) < 1e-6
+
+    for trade in journal.list_trades():
+        if trade["id"] not in before_ids:
+            journal.delete_trade(trade["id"])
+    journal.set_cash_balance(base_cash, "測試清理")
+
+
 if __name__ == "__main__":
     test_journal_roundtrip()
     test_add_buy_validation()
@@ -192,4 +224,5 @@ if __name__ == "__main__":
     test_summary_on_sell()
     test_dca_plan_autofill()
     test_update_partial_reopen()
+    test_current_assets_cash_and_transactions()
     print("投資紀錄(journal)CRUD + 總資產 + 定期定額 + 手動編輯/部分賣出/復原 PASSED。")

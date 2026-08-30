@@ -33,7 +33,8 @@ matplotlib.rcParams["axes.unicode_minus"] = False   # 負號正常顯示(避免�
 import flet as ft
 
 import config
-from core.data_pipeline import ensure_data, ensure_db, get_stock_name, update_symbols
+from core.data_pipeline import ensure_data, ensure_db, get_stock_name, load_ohlcv, update_symbols
+from core.exit_radar import RadarSettings, analyze_exit_radar
 from core import rotation
 from core import journal
 
@@ -114,6 +115,88 @@ def make_stock_price_figure(price6, title=None) -> Figure:
 def stock_price_image(price6, title=None) -> ft.Image:
     """近 6 個月走勢 -> PNG base64 -> ft.Image。"""
     return _fig_to_image(make_stock_price_figure(price6, title))
+
+
+def make_exit_radar_figure(result: dict, title: str = "") -> Figure:
+    """近一年價格、20/60 日線、ATR/Chandelier 與結構防守價。"""
+    df = result["frame"].tail(250)
+    fig = Figure(figsize=(5, 2.8), dpi=110)
+    ax = fig.add_subplot(111)
+    ax.plot(df.index, df["close"], color="#263238", linewidth=1.4, label="收盤")
+    ax.plot(df.index, df["sma20"], color="#1976D2", linewidth=1.0, label="20日線")
+    ax.plot(df.index, df["sma60"], color="#7B1FA2", linewidth=1.0, label="60日線")
+    atr_line = df["high"].rolling(60, min_periods=1).max() - result["atr_multiplier"] * df["atr14"]
+    ax.plot(df.index, atr_line, color="#EF6C00", linewidth=.9, linestyle="--", label="ATR停利")
+    ax.plot(df.index, df["chandelier"], color="#00897B", linewidth=.8, linestyle=":", label="Chandelier")
+    if result.get("pivot_low"):
+        ax.axhline(result["pivot_low"], color="#B71C1C", linewidth=.9, linestyle="--", label="波段低點")
+    ax.set_title((title + " · " if title else "") + "出場雷達", fontsize=9)
+    ax.tick_params(labelsize=7)
+    ax.grid(True, alpha=.18)
+    ax.legend(fontsize=6.5, ncol=3, loc="best")
+    fig.autofmt_xdate(rotation=25)
+    fig.tight_layout()
+    return fig
+
+
+def _mini_radar_kpi(title: str, value: str) -> ft.Container:
+    return ft.Container(content=ft.Column([
+        ft.Text(title, size=10, color=getattr(C, "GREY_700", "#616161")),
+        ft.Text(value, size=14, weight=ft.FontWeight.BOLD),
+    ], spacing=1, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        bgcolor=getattr(C, "GREY_100", "#F5F5F5"), padding=9,
+        border_radius=10, expand=True, alignment=ft.Alignment.CENTER)
+
+
+def make_exit_radar_controls(result: dict, title: str = "") -> list:
+    """把純分析結果轉為手機友善、可解釋的 Flet 卡片。"""
+    if not result.get("available"):
+        return [ft.Container(content=ft.Column([
+            ft.Text("出場雷達：資料不足", size=18, weight=ft.FontWeight.BOLD),
+            ft.Text(result.get("message", "無法分析"), size=12),
+        ], spacing=4), padding=14, border_radius=14, bgcolor="#FFF8E1")]
+
+    def money(v):
+        return "--" if v is None or not np.isfinite(v) else f"{v:,.2f}"
+
+    status = ft.Container(content=ft.Column([
+        ft.Text(result["status"], size=23, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+        ft.Text(result["advice"], size=12, color="#FFFFFF"),
+        ft.Text(f"{title} · 資料 {result['asof']} · {result['price_basis']}", size=10, color="#FFFFFF"),
+    ], spacing=4), bgcolor=result["color"], padding=16, border_radius=14)
+    levels = ft.Row([
+        _mini_radar_kpi("現價", money(result["last_close"])),
+        _mini_radar_kpi("第一防守", money(result["first_defense"])),
+        _mini_radar_kpi("關鍵防守", money(result["key_defense"])),
+    ], spacing=7)
+    risk = ft.Row([
+        _mini_radar_kpi(f"ATR {result['atr_multiplier']:.0f}×", money(result["atr_stop"])),
+        _mini_radar_kpi("Chandelier", money(result["chandelier"])),
+        _mini_radar_kpi("高點回撤", f"{result['drawdown']*100:.1f}%"),
+    ], spacing=7)
+    signal_rows = []
+    for signal in result["signals"]:
+        icon = {"leading": "⚠", "confirm": "◆", "reinforce": "●"}[signal["kind"]]
+        signal_rows.append(ft.Text(f"{icon} {signal['title']}｜{signal['detail']}", size=11))
+    if not signal_rows:
+        signal_rows = [ft.Text("✓ 目前沒有觸發技術面轉弱條件", size=11, color="#2E7D32")]
+    pending = [ft.Text("— " + item, size=11, color=getattr(C, "GREY_700", "#616161"))
+               for item in result.get("pending", [])]
+    basis = ("未提供此持倉買入日，ATR 停利暫以近 60 個交易日高點估算。"
+             if result.get("holding_fallback") else "ATR 停利依此持倉買入日至今最高價計算。")
+    details = ft.Container(content=ft.Column([
+        ft.Text("已觸發警訊", size=13, weight=ft.FontWeight.BOLD), *signal_rows,
+        ft.Divider(), ft.Text("尚未確認", size=13, weight=ft.FontWeight.BOLD),
+        *(pending or [ft.Text("目前主要確認條件均已觸發。", size=11)]), ft.Divider(),
+        ft.Text(f"RSI {money(result['rsi14'])}　量比 {money(result['relative_volume'])}×　ATR {money(result['atr14'])}", size=11),
+        ft.Text(basis, size=10, color=getattr(C, "GREY_700", "#616161")),
+        ft.Text("技術訊號可能出現假突破或延遲，請配合持倉週期與可承受風險使用。",
+                size=10, color=getattr(C, "GREY_700", "#616161")),
+    ], spacing=6), bgcolor="#FFFFFF", padding=12, border_radius=12,
+        border=B.all(1, getattr(C, "GREY_300", "#E0E0E0")) if B else None)
+    chart = ft.Container(content=_fig_to_image(make_exit_radar_figure(result, title)), height=285,
+                         bgcolor="#FFFFFF", border_radius=12)
+    return [status, levels, risk, chart, details]
 
 
 # ---------------------------------------------------------------------------
@@ -366,16 +449,49 @@ def make_allocation_rows(alloc: dict) -> list:
 # 投資紀錄(交易日誌):從 0 記錄投入金額、買入/賣出點位與時間、報酬
 # ---------------------------------------------------------------------------
 def make_summary_text(s: dict) -> str:
-    """把 journal.summary() 彙總成字串(總資產=持倉現值;賣出回收現金不計入)。"""
+    """顯示總資產、現金、成本與已／未實現績效。"""
     return (
-        f"總資產 {s.get('total_assets', 0):,.0f}　(持倉現值;賣出回收現金不計入)\n"
-        f"總投入(持倉) {s['invested']:,.0f}　"
+        f"總資產 {s.get('total_assets', 0):,.0f}　"
+        f"持倉市值 {s.get('market_value', 0):,.0f}　"
+        f"現金 {s.get('cash', 0):,.0f}\n"
+        f"持倉成本 {s['invested']:,.0f}　"
         f"未實現 {s['unrealized_pnl']:+,.0f}　"
         f"已實現 {s['realized_pnl']:+,.0f}\n"
-        f"總損益 {s['total_pnl']:+,.0f}　"
-        f"({s['total_return']*100:+.1f}%)　·　"
-        f"持有 {s['n_open']} · 已平倉 {s['n_closed']}"
+        f"證券總損益 {s['total_pnl']:+,.0f}　"
+        f"累計成本報酬率 {s['total_return']*100:+.1f}%　·　"
+        f"持倉 lot {s['n_open']} · 已平倉 {s['n_closed']}"
     )
+
+
+def make_position_rows(positions: list) -> list:
+    """把彙總持倉與逐筆交易 lot 分開顯示。"""
+    cards = []
+    for position in positions:
+        title = f"{position.get('name') or ''} {position['symbol']}".strip()
+        pnl = position.get("pnl")
+        ret = position.get("return")
+        color = "#D32F2F" if (pnl or 0) >= 0 else "#2E7D32"
+        market = ("現值待行情" if position.get("market_value") is None
+                  else f"現值 {position['market_value']:,.0f}")
+        performance = ("損益待行情" if pnl is None
+                       else f"損益 {pnl:+,.0f}（{ret*100:+.1f}%）")
+        cards.append(ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Text(title, size=15, weight=ft.FontWeight.BOLD),
+                    ft.Text(performance, size=13, weight=ft.FontWeight.BOLD,
+                            color=color),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Text(
+                    f"{position['shares']:g} 單位 · 平均成本 "
+                    f"{position['average_cost']:,.2f} · 成本 {position['cost']:,.0f}",
+                    size=12),
+                ft.Text(f"{market} · {position['lots']} 個成本 lot",
+                        size=11, color=getattr(C, "GREY_700", "#616161")),
+            ], spacing=4),
+            bgcolor=getattr(C, "GREY_100", "#F5F5F5"),
+            padding=12, border_radius=12))
+    return cards
 
 
 def _edit_card(t: dict, on_save, on_cancel) -> "ft.Container":
@@ -768,6 +884,23 @@ def main(page: ft.Page):
                     color=getattr(C, "GREY_700", "#616161"),
                     text_align=ft.TextAlign.CENTER)
 
+    # --- 技術面出場雷達（沿用持倉買入日；無持倉時以近 60 日估算）---
+    radar_horizon = ft.Dropdown(
+        label="持有週期", width=140, value="swing",
+        options=[ft.DropdownOption(key="short", text="短線"),
+                 ft.DropdownOption(key="swing", text="波段"),
+                 ft.DropdownOption(key="long", text="中長期")])
+    radar_atr_mode = ft.Dropdown(
+        label="移動停利", width=140, value="balanced",
+        options=[ft.DropdownOption(key="aggressive", text="積極 2×ATR"),
+                 ft.DropdownOption(key="balanced", text="平衡 3×ATR"),
+                 ft.DropdownOption(key="loose", text="寬鬆 4×ATR")])
+    radar_panel = ft.Column([
+        ft.Container(content=ft.Column([
+            ft.Text("技術面出場雷達", size=18, weight=ft.FontWeight.BOLD),
+            ft.Text("分析後顯示動能警訊、趨勢確認、關鍵防守與移動停利。", size=11),
+        ], spacing=3), padding=14, border_radius=14, bgcolor="#ECEFF1")
+    ], spacing=10)
     # --- 本月持有清單區塊(相對強弱輪動)---
     scan_title = ft.Text("本月持有清單(相對強弱輪動 + 絕對動能閘門 · 空頭轉現金)", size=14,
                          weight=ft.FontWeight.BOLD)
@@ -796,27 +929,57 @@ def main(page: ft.Page):
         spacing=8)
 
     # --- 投資紀錄區塊(交易日誌:從 0 記錄投入/買賣點位與時間/報酬)---
-    jrnl_title = ft.Text("投資紀錄(從 0 記錄每一筆投入與報酬)", size=14,
+    jrnl_title = ft.Text("匯入目前資產與現金", size=14,
                          weight=ft.FontWeight.BOLD)
     j_symbol = ft.TextField(label="代號", width=90, dense=True, text_size=14)
-    j_amount = ft.TextField(label="投入金額", width=110, dense=True, text_size=14)
-    j_price = ft.TextField(label="買入價", width=90, dense=True, text_size=14)
-    j_date = ft.TextField(label="買入日(選填,可補登歷史)", width=180,
+    j_amount = ft.TextField(label="持有數量", width=110, dense=True, text_size=14)
+    j_price = ft.TextField(label="平均成本", width=100, dense=True, text_size=14)
+    j_date = ft.TextField(label="成本日期(選填)", width=180,
                           dense=True, text_size=13)
     j_note = ft.TextField(label="備註(選填)", width=170, dense=True, text_size=13)
     try:
-        j_add_btn = ft.Button(content="記錄買入", icon=getattr(I, "ADD", None))
+        j_add_btn = ft.Button(content="新增目前資產", icon=getattr(I, "ADD", None))
     except Exception:
-        j_add_btn = ft.ElevatedButton(text="記錄買入", icon=getattr(I, "ADD", None))
+        j_add_btn = ft.ElevatedButton(text="新增目前資產", icon=getattr(I, "ADD", None))
+    j_cash = ft.TextField(label="目前現金", width=140, dense=True, text_size=14)
+    try:
+        j_cash_btn = ft.Button(content="儲存現金", icon=getattr(I, "ACCOUNT_BALANCE_WALLET", None))
+    except Exception:
+        j_cash_btn = ft.ElevatedButton(text="儲存現金")
+
+    tx_title = ft.Text("快速記錄新交易", size=14, weight=ft.FontWeight.BOLD)
+    tx_side = ft.Dropdown(
+        label="交易", width=95, value="buy",
+        options=[ft.DropdownOption(key="buy", text="買進"),
+                 ft.DropdownOption(key="sell", text="賣出")])
+    tx_symbol = ft.TextField(label="代號", width=90, dense=True, text_size=14)
+    tx_qty = ft.TextField(label="成交數量", width=110, dense=True, text_size=14)
+    tx_price = ft.TextField(label="成交價", width=100, dense=True, text_size=14)
+    tx_date = ft.TextField(label="日期（選填）", width=160, dense=True, text_size=13)
+    tx_note = ft.TextField(label="備註（選填）", width=170, dense=True, text_size=13)
+    try:
+        tx_add_btn = ft.Button(content="記錄交易", icon=getattr(I, "ADD_CHART", None))
+    except Exception:
+        tx_add_btn = ft.ElevatedButton(text="記錄交易")
+    tx_msg = ft.Text("", size=11, color="#B71C1C")
+
+    positions_title = ft.Text("目前持倉", size=14, weight=ft.FontWeight.BOLD)
+    positions_panel = ft.Column([], spacing=8)
+
     j_msg = ft.Text("", size=11, color="#B71C1C")
     j_summary = ft.Text("尚無紀錄", size=12, weight=ft.FontWeight.BOLD,
                         color=getattr(C, "GREY_700", "#616161"))
     j_summary_card = ft.Container(
         content=j_summary, bgcolor="#E3F2FD", padding=12, border_radius=12)
+    try:
+        j_records_btn = ft.Button(content="展開投資紀錄", icon=getattr(I, "EXPAND_MORE", None))
+    except Exception:
+        j_records_btn = ft.ElevatedButton(text="展開投資紀錄",
+                                          icon=getattr(I, "EXPAND_MORE", None))
     j_panel = ft.Column(
-        [ft.Text("還沒有任何紀錄,於上方輸入代號/金額/買入價並按「記錄買入」",
+        [ft.Text("還沒有資產，輸入代號、持有數量與平均成本即可新增。",
                  size=12, color=getattr(C, "GREY", "#9E9E9E"))],
-        spacing=8)
+        spacing=8, visible=False)
 
     # 總資產快照(記錄總資產隨時間變化)
     try:
@@ -827,6 +990,13 @@ def main(page: ft.Page):
     j_hist_chart = ft.Container(visible=False, height=170,
                                 alignment=ft.Alignment.CENTER,
                                 bgcolor="#FFFFFF", border_radius=10)
+    try:
+        j_history_btn = ft.Button(content="展開總資產紀錄",
+                                  icon=getattr(I, "EXPAND_MORE", None))
+    except Exception:
+        j_history_btn = ft.ElevatedButton(text="展開總資產紀錄")
+    j_history_content = ft.Column(
+        [j_hist_chart, j_hist_panel], spacing=8, visible=False)
 
     # 定期定額(DCA)設定:代號 / 每期金額 / 頻率 / 起始日
     dca_title = ft.Text("定期定額(自動回補買入)", size=13, weight=ft.FontWeight.BOLD)
@@ -869,15 +1039,29 @@ def main(page: ft.Page):
         signal_sub.value = "分析中(載入動能池)..."
         page.update()
 
-        symbol = symbol_field.value or "2330"
+        symbol = (symbol_field.value or "2330").strip().upper()
         try:
-            # 算這檔在輪動池的動能排名/絕對動能(丟背景執行緒)
+            # 輪動適配與出場雷達共用同一批本地行情。
             res = await asyncio.to_thread(rotation.analyze_stock, symbol)
-            apply_fit(ui, res)            # 套用結果到控件(可測試)
+            apply_fit(ui, res)
+            price_df = await asyncio.to_thread(load_ohlcv, symbol)
+            open_trade = next((trade for trade in journal.list_trades()
+                               if trade["status"] == "open" and trade["symbol"] == symbol), None)
+            settings = RadarSettings(
+                horizon=radar_horizon.value or "swing",
+                atr_mode=radar_atr_mode.value or "balanced",
+                buy_price=open_trade.get("buy_price") if open_trade else None,
+                buy_date=open_trade.get("buy_time") if open_trade else None,
+            )
+            radar = await asyncio.to_thread(analyze_exit_radar, price_df, settings)
+            label = f"{res.get('name') or ''} {symbol}".strip()
+            radar_panel.controls = make_exit_radar_controls(radar, label)
         except Exception as ex:
             signal_name.value = "分析失敗"
             signal_sub.value = str(ex)
             signal_card.bgcolor = "#B71C1C"
+            radar_panel.controls = [ft.Text(f"出場雷達載入失敗：{ex}",
+                                            size=12, color="#B71C1C")]
         finally:
             # 一次性收尾更新
             run_btn.disabled = False
@@ -1051,11 +1235,23 @@ def main(page: ft.Page):
         page.update()
 
     # --- 投資紀錄事件 ---
-    j_state = {"editing": None}        # 目前進入編輯模式的紀錄 id
+    j_state = {"editing": None, "records_expanded": False, "history_expanded": False}
 
     def refresh_journal():
         """重建紀錄清單 + 彙總 + 總資產快照 + 定期定額清單(讀 DB),由呼叫端 page.update()。"""
         trades = journal.list_trades()
+        current_positions = journal.positions()
+        positions_panel.controls = (
+            make_position_rows(current_positions) if current_positions else
+            [ft.Text("目前沒有持倉", size=12,
+                     color=getattr(C, "GREY", "#9E9E9E"))]
+        )
+        j_cash.value = f"{journal.cash_balance():g}"
+        records_label = ("收合" if j_state["records_expanded"] else "展開")
+        records_label += f"投資紀錄（{len(trades)} 筆）"
+        j_records_btn.content = records_label
+        j_records_btn.visible = bool(trades)
+        j_panel.visible = bool(trades) and j_state["records_expanded"]
         if trades:
             open_trades = [t for t in trades if t["status"] == "open"]
             closed_trades = [t for t in trades if t["status"] == "closed"]
@@ -1083,11 +1279,15 @@ def main(page: ft.Page):
             j_panel.controls = controls
         else:
             j_panel.controls = [ft.Text(
-                "還沒有任何紀錄,於上方輸入代號/金額/買入價並按「記錄買入」",
+                "還沒有資產，輸入代號、持有數量與平均成本即可新增。",
                 size=12, color=getattr(C, "GREY", "#9E9E9E"))]
-        j_summary.value = make_summary_text(journal.summary()) if trades else "尚無紀錄"
+        j_summary.value = make_summary_text(journal.summary())
         # 總資產快照清單 + 成長曲線(≥2 筆才畫圖)
         hist = journal.list_asset_history()
+        history_label = ("收合" if j_state["history_expanded"] else "展開")
+        j_history_btn.content = f"{history_label}總資產紀錄（{len(hist)} 筆）"
+        j_history_btn.visible = bool(hist)
+        j_history_content.visible = bool(hist) and j_state["history_expanded"]
         j_hist_panel.controls = (
             make_asset_history_rows(hist, on_delete=on_delete_snapshot) if hist else
             [ft.Text("尚無快照,按「記錄總資產」存一筆", size=11,
@@ -1103,20 +1303,73 @@ def main(page: ft.Page):
                               [ft.Text("尚無定期定額計畫。設定後按「立即更新」自動補買。",
                                        size=12, color=getattr(C, "GREY", "#9E9E9E"))])
 
+    def on_toggle_records(e):
+        j_state["records_expanded"] = not j_state["records_expanded"]
+        refresh_journal()
+        page.update()
+
+    def on_toggle_history(e):
+        j_state["history_expanded"] = not j_state["history_expanded"]
+        refresh_journal()
+        page.update()
+
     def on_add_buy(e):
         j_msg.value = ""
         try:
             sym = (j_symbol.value or "").strip()
-            amount = float(j_amount.value)
+            quantity = float(j_amount.value)
             price = float(j_price.value)
-            journal.add_buy(sym, amount, price,
-                            buy_time=(j_date.value or "").strip() or None,
-                            note=(j_note.value or "").strip())
+            journal.add_current_asset(
+                sym, quantity, price,
+                asof=(j_date.value or "").strip() or None,
+                note=(j_note.value or "").strip())
+            j_msg.value = f"已匯入 {sym.upper()}：{quantity:g} 單位，平均成本 {price:g}"
+            j_msg.color = "#2E7D32"
+            j_state["records_expanded"] = False
             j_symbol.value = j_amount.value = j_price.value = ""
             j_date.value = j_note.value = ""
             refresh_journal()
         except Exception as ex:
-            j_msg.value = f"記錄失敗:{ex}"
+            j_msg.value = f"匯入失敗：{ex}"
+            j_msg.color = "#B71C1C"
+        page.update()
+
+    def on_set_cash(e):
+        j_msg.value = ""
+        try:
+            balance = journal.set_cash_balance(float(j_cash.value))
+            j_msg.value = f"目前現金已更新為 {balance:,.0f}"
+            j_msg.color = "#2E7D32"
+            refresh_journal()
+        except Exception as ex:
+            j_msg.value = f"現金更新失敗：{ex}"
+            j_msg.color = "#B71C1C"
+        page.update()
+
+    def on_record_transaction(e):
+        tx_msg.value = ""
+        try:
+            side = tx_side.value or "buy"
+            symbol = (tx_symbol.value or "").strip()
+            quantity = float(tx_qty.value)
+            price = float(tx_price.value)
+            when = (tx_date.value or "").strip() or None
+            note = (tx_note.value or "").strip()
+            if side == "sell":
+                journal.record_sell(symbol, quantity, price, when, note)
+                action = "賣出"
+            else:
+                journal.record_buy(symbol, quantity, price, when, note)
+                action = "買進"
+            tx_msg.value = f"已記錄 {action} {symbol.upper()} {quantity:g} 單位 @ {price:g}"
+            tx_msg.color = "#2E7D32"
+            tx_symbol.value = tx_qty.value = tx_price.value = ""
+            tx_date.value = tx_note.value = ""
+            j_state["records_expanded"] = False
+            refresh_journal()
+        except Exception as ex:
+            tx_msg.value = f"交易失敗：{ex}"
+            tx_msg.color = "#B71C1C"
         page.update()
 
     def on_sell_trade(trade_id, price_field, qty_field=None):
@@ -1187,6 +1440,7 @@ def main(page: ft.Page):
         j_msg.value = ""
         try:
             journal.snapshot_assets()
+            j_state["history_expanded"] = False
             refresh_journal()
         except Exception as ex:
             j_msg.value = f"記錄總資產失敗:{ex}"
@@ -1237,6 +1491,10 @@ def main(page: ft.Page):
         page.update()
 
     j_add_btn.on_click = on_add_buy
+    j_cash_btn.on_click = on_set_cash
+    tx_add_btn.on_click = on_record_transaction
+    j_records_btn.on_click = on_toggle_records
+    j_history_btn.on_click = on_toggle_history
     j_snap_btn.on_click = on_snapshot
     dca_add_btn.on_click = on_add_dca
     dca_run_btn.on_click = on_run_dca
@@ -1258,6 +1516,9 @@ def main(page: ft.Page):
             chart_holder,
             kpi_row,
             bench,
+            ft.Divider(),
+            ft.Row([radar_horizon, radar_atr_mode], spacing=8),
+            radar_panel,
         ],
         spacing=16, scroll=_scroll, expand=True,
     )
@@ -1280,19 +1541,38 @@ def main(page: ft.Page):
     tab_journal = ft.Column(
         [
             jrnl_title,
+            ft.Text("第一次使用時，逐筆輸入目前持倉；這些期初資料不會扣除現金。",
+                    size=11, color=getattr(C, "GREY_700", "#616161")),
             ft.Row([j_symbol, j_amount, j_price],
                    alignment=ft.MainAxisAlignment.START, spacing=8),
             ft.Row([j_date, j_note],
                    alignment=ft.MainAxisAlignment.START, spacing=8),
-            ft.Row([j_add_btn, j_snap_btn],
+            ft.Row([j_add_btn, j_cash, j_cash_btn],
                    alignment=ft.MainAxisAlignment.START, spacing=8),
             j_msg,
+            ft.Divider(),
+            tx_title,
+            ft.Row([tx_side, tx_symbol, tx_qty],
+                   alignment=ft.MainAxisAlignment.START, spacing=8),
+            ft.Row([tx_price, tx_date, tx_note],
+                   alignment=ft.MainAxisAlignment.START, spacing=8),
+            tx_add_btn,
+            tx_msg,
+            ft.Divider(),
+            ft.Text("績效與成本", size=14, weight=ft.FontWeight.BOLD),
             j_summary_card,
+            ft.Divider(),
+            positions_title,
+            positions_panel,
+            ft.Divider(),
+            ft.Text("交易紀錄", size=14, weight=ft.FontWeight.BOLD),
+            j_records_btn,
             j_panel,
             ft.Divider(),
             ft.Text("總資產紀錄", size=13, weight=ft.FontWeight.BOLD),
-            j_hist_chart,
-            j_hist_panel,
+            j_snap_btn,
+            j_history_btn,
+            j_history_content,
             ft.Divider(),
             dca_title,
             ft.Row([dca_symbol, dca_amount, dca_freq],

@@ -20,6 +20,7 @@ journal.py - 投資紀錄(交易日誌 / 持倉帳本 + 總資產 + 定期定額
         = 累計投入 + 總損益(已實現 + 未實現)
 """
 import calendar
+import math
 import datetime as _dt
 
 import pandas as pd
@@ -120,6 +121,18 @@ def init_journal() -> None:
         )
         """
     )
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS cash_movements (
+            id         {id_type},
+            amount     REAL NOT NULL,
+            kind       TEXT NOT NULL,
+            trade_id   INTEGER,
+            ts         TEXT NOT NULL,
+            note       TEXT
+        )
+        """
+    )
     # 舊版 trades 表升級:補上新欄(若不存在)
     if pg:
         cols = [r[0] for r in conn.execute(
@@ -166,6 +179,59 @@ def get_close_on(symbol: str, date_str: str):
         return float(sub["close"].iloc[-1])
     except Exception:
         return None
+
+
+def _add_cash_movement(amount: float, kind: str, trade_id: int = None,
+                       ts: str = None, note: str = "") -> int:
+    amount = float(amount)
+    if not math.isfinite(amount):
+        raise ValueError("現金金額格式錯誤")
+    init_journal()
+    conn = get_conn()
+    movement_id = insert_id(
+        conn,
+        "INSERT INTO cash_movements (amount, kind, trade_id, ts, note) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (amount, kind, trade_id, ts or _now(), (note or "").strip() or None),
+    )
+    conn.commit()
+    conn.close()
+    return int(movement_id)
+
+
+def cash_balance() -> float:
+    """目前帳戶現金；由期初現金、買賣與手動調整累加。"""
+    init_journal()
+    conn = get_conn()
+    row = conn.execute("SELECT COALESCE(SUM(amount), 0) FROM cash_movements").fetchone()
+    conn.close()
+    return float(row[0] or 0.0)
+
+
+def set_cash_balance(balance: float, note: str = "匯入目前現金") -> float:
+    """把帳戶現金調整至指定餘額，保留差額異動以便追溯。"""
+    balance = float(balance)
+    if not math.isfinite(balance) or balance < 0:
+        raise ValueError("現金餘額不可小於 0")
+    delta = balance - cash_balance()
+    if abs(delta) > 1e-9:
+        _add_cash_movement(delta, "cash_adjustment", note=note)
+    return balance
+
+
+def list_cash_movements(limit: int = 100) -> list:
+    init_journal()
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, amount, kind, trade_id, ts, note "
+        "FROM cash_movements ORDER BY id DESC LIMIT ?", (int(limit),)
+    ).fetchall()
+    conn.close()
+    return [
+        {"id": r[0], "amount": float(r[1]), "kind": r[2],
+         "trade_id": r[3], "ts": r[4], "note": r[5] or ""}
+        for r in rows
+    ]
 
 
 def add_buy(symbol: str, amount: float, buy_price: float,
@@ -230,6 +296,7 @@ def delete_trade(trade_id: int) -> None:
     """刪除一筆紀錄。"""
     init_journal()
     conn = get_conn()
+    conn.execute("DELETE FROM cash_movements WHERE trade_id = ?", (int(trade_id),))
     conn.execute("DELETE FROM trades WHERE id = ?", (int(trade_id),))
     conn.commit()
     conn.close()
@@ -446,6 +513,103 @@ def list_trades() -> list:
     return out
 
 
+def add_current_asset(symbol: str, shares: float, average_cost: float,
+                      asof: str = None, note: str = "") -> int:
+    """匯入一筆目前持倉；建立期初 lot，不變動現金。"""
+    shares, average_cost = float(shares), float(average_cost)
+    if not math.isfinite(shares) or shares <= 0:
+        raise ValueError("持有數量需大於 0")
+    if not math.isfinite(average_cost) or average_cost <= 0:
+        raise ValueError("平均成本需大於 0")
+    return add_buy(symbol, shares * average_cost, average_cost,
+                   buy_time=asof, source="initial", note=note)
+
+
+def record_buy(symbol: str, shares: float, price: float,
+               when: str = None, note: str = "") -> int:
+    """記錄新買進交易並同步扣除現金。"""
+    shares, price = float(shares), float(price)
+    if not math.isfinite(shares) or shares <= 0:
+        raise ValueError("買進數量需大於 0")
+    if not math.isfinite(price) or price <= 0:
+        raise ValueError("成交價需大於 0")
+    trade_id = add_buy(symbol, shares * price, price, buy_time=when,
+                       source="manual", note=note)
+    _add_cash_movement(-(shares * price), "buy", trade_id, when,
+                       f"買進 {symbol.upper()}")
+    return trade_id
+
+
+def record_sell(symbol: str, shares: float, price: float,
+                when: str = None, note: str = "") -> list:
+    """依 FIFO 賣出既有持倉並把賣出所得加入現金；回傳平倉 lot id。"""
+    symbol = (symbol or "").strip().upper()
+    shares, price = float(shares), float(price)
+    if not symbol:
+        raise ValueError("代號不可空白")
+    if not math.isfinite(shares) or shares <= 0:
+        raise ValueError("賣出數量需大於 0")
+    if not math.isfinite(price) or price <= 0:
+        raise ValueError("成交價需大於 0")
+    lots = sorted(
+        [t for t in list_trades()
+         if t["status"] == "open" and t["symbol"] == symbol],
+        key=lambda t: t["id"],
+    )
+    available = sum(t["shares"] for t in lots)
+    if shares > available + 1e-9:
+        raise ValueError(f"持有數量不足（目前 {available:g}）")
+    remaining, closed_ids = shares, []
+    for lot in lots:
+        if remaining <= 1e-9:
+            break
+        sold = min(remaining, lot["shares"])
+        closed_id = sell_partial(lot["id"], sold, price, when)
+        _add_cash_movement(sold * price, "sell", closed_id, when,
+                           note or f"賣出 {symbol}")
+        closed_ids.append(closed_id)
+        remaining -= sold
+    return closed_ids
+
+
+def positions() -> list:
+    """按標的彙總目前持倉，與逐筆交易紀錄分開呈現。"""
+    grouped = {}
+    for trade in list_trades():
+        if trade["status"] != "open":
+            continue
+        position = grouped.setdefault(trade["symbol"], {
+            "symbol": trade["symbol"], "name": trade.get("name") or "",
+            "shares": 0.0, "cost": 0.0, "value": 0.0, "priced": True,
+            "lots": 0,
+        })
+        position["shares"] += trade["shares"]
+        position["cost"] += trade["amount"]
+        position["lots"] += 1
+        if trade.get("value") is None:
+            position["priced"] = False
+        else:
+            position["value"] += trade["value"]
+    result = []
+    for position in grouped.values():
+        position["average_cost"] = position["cost"] / position["shares"]
+        position["market_value"] = position["value"] if position["priced"] else None
+        position["current_price"] = (
+            position["market_value"] / position["shares"]
+            if position["market_value"] is not None else None
+        )
+        position["pnl"] = (
+            position["market_value"] - position["cost"]
+            if position["market_value"] is not None else None
+        )
+        position["return"] = (
+            position["pnl"] / position["cost"]
+            if position["pnl"] is not None and position["cost"] else None
+        )
+        result.append(position)
+    return sorted(result, key=lambda p: p["cost"], reverse=True)
+
+
 def summary() -> dict:
     """
     整體績效彙總(從 0 開始;「目前持倉 + 已實現」雙軌會計):
@@ -477,7 +641,8 @@ def summary() -> dict:
 
     market_value = sum(_val(t) for t in open_t)
     realized_proceeds = sum(t["value"] for t in closed_t if t.get("value") is not None)
-    total_assets = market_value                             # 總資產 = 持倉現值(回收現金不計入)
+    cash = cash_balance()
+    total_assets = market_value + cash
     return {
         "invested": invested,
         "cost_all": cost_all,
@@ -486,6 +651,7 @@ def summary() -> dict:
         "total_pnl": total,
         "total_return": (total / cost_all) if cost_all else 0.0,
         "market_value": market_value,
+        "cash": cash,
         "realized_proceeds": realized_proceeds,
         "total_assets": total_assets,
         "n_open": len(open_t),
