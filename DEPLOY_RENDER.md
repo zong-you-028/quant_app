@@ -14,8 +14,9 @@ stored in Neon PostgreSQL; the market-data cache remains in local SQLite.
 4. Deploy. Render displays the public `onrender.com` URL after the build
    finishes. Open that URL from any device.
 
-Journal entries survive Render restarts in Neon. Without a persistent disk,
-downloaded market-price cache data is rebuilt after a restart.
+Journal entries survive Render restarts in Neon. The Docker image includes a
+journal-free market/name seed, so a fresh Render instance starts from the same
+real-data baseline as local runs and then applies daily market updates.
 
 ## Existing local data
 
