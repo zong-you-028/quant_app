@@ -10,7 +10,9 @@ stored in Neon PostgreSQL; the market-data cache remains in local SQLite.
 2. In [Render](https://dashboard.render.com/), select **New** > **Blueprint**, then connect that repository.
    Render reads `render.yaml` and creates the `quant-app` web service.
 3. In the service environment settings, set `JOURNAL_DATABASE_URL` to the Neon
-   PostgreSQL connection string. Enter `FINMIND_TOKEN` too if you use one.
+   PostgreSQL connection string. Set `APP_PASSWORD` to a strong, unique password;
+   the web app stays locked if this variable is missing. Enter `FINMIND_TOKEN`
+   too if you use one.
 4. Deploy. Render displays the public `onrender.com` URL after the build
    finishes. Open that URL from any device.
 
@@ -28,5 +30,7 @@ SQLite journal rows are not migrated automatically.
 ## Security
 
 The Render URL is publicly reachable. Do not store sensitive information in
-the journal until access control has been added. For personal use, add a login
-gate before sharing the URL.
+the journal without a strong application password. The optional "remember me"
+setting stores a derived login token in that browser, never the plaintext
+password. Changing `APP_PASSWORD` invalidates remembered logins. Anyone who
+knows the password can view and modify the shared journal, so do not reuse a

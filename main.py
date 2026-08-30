@@ -11,7 +11,10 @@ main.py - Flet 手機直式 UI + Async 編排(專案進入點)
 """
 import asyncio
 import base64
+import hashlib
+import hmac
 import io
+import os
 
 import numpy as np
 import pandas as pd
@@ -44,6 +47,18 @@ ensure_db()
 C = getattr(ft, "Colors", None) or getattr(ft, "colors", None)
 I = getattr(ft, "Icons", None) or getattr(ft, "icons", None)
 B = getattr(ft, "Border", None) or getattr(ft, "border", None)
+
+AUTH_STORAGE_KEY = "quant_app.remembered_login.v1"
+
+
+def _auth_token(password: str) -> str:
+    """產生瀏覽器記住登入用的憑證；不保存明文密碼。"""
+    return hmac.new(
+        password.encode("utf-8"),
+        b"quant-app-remembered-login-v1",
+        hashlib.sha256,
+    ).hexdigest()
+
 
 # 註:flet-charts 0.85 的 MatplotlibChart 是「互動式」後端(WebAgg 串流),
 # 需要 figure.canvas.manager,裸 Figure 會在 resize 時 add_web_socket 報錯。
@@ -774,8 +789,16 @@ def asset_history_image(history: list) -> ft.Image:
 # ---------------------------------------------------------------------------
 # Flet 主程式
 # ---------------------------------------------------------------------------
-def main(page: ft.Page):
+def _build_app(page: ft.Page, on_logout=None):
     page.title = "量化交易燈號系統"
+    if on_logout is not None:
+        try:
+            page.appbar = ft.AppBar(
+                title=ft.Text("量化交易燈號系統"),
+                actions=[ft.IconButton(icon=getattr(I, "LOGOUT", None),
+                                       tooltip="登出", on_click=on_logout)])
+        except Exception:
+            page.appbar = None
     page.theme_mode = getattr(ft.ThemeMode, "LIGHT", None)
     # 分頁版面:外層不滾動(固定視窗高),改由每個分頁內容各自滾動
     page.scroll = None
@@ -1632,6 +1655,100 @@ def main(page: ft.Page):
 #   瀏覽器:    flet run -w main.py   (Flet 0.85 web 模式請用 CLI;
 #              programmatic 的 view=WEB_BROWSER 在 0.85 會 add_web_socket 報錯)
 # 新版 ft.run(main)、舊版 ft.app(target=main),try/except 相容。
+async def main(page: ft.Page):
+    """先驗證 APP_PASSWORD；成功後才建立會讀取投資資料的主介面。"""
+    page.title = "量化交易燈號系統｜登入"
+    page.theme_mode = getattr(ft.ThemeMode, "LIGHT", None)
+    page.padding = 20
+    configured_password = os.environ.get("APP_PASSWORD", "")
+    preferences = ft.SharedPreferences()
+
+    def clear_page():
+        page.appbar = None
+        try:
+            page.clean()
+        except Exception:
+            page.controls.clear()
+
+    async def logout(e=None):
+        try:
+            await preferences.remove(AUTH_STORAGE_KEY)
+        except Exception:
+            pass
+        clear_page()
+        show_login()
+        page.update()
+
+    def unlock():
+        clear_page()
+        _build_app(page, on_logout=logout)
+
+    async def submit_login(e=None):
+        candidate = password_field.value or ""
+        if configured_password and hmac.compare_digest(candidate, configured_password):
+            if remember_box.value:
+                await preferences.set(AUTH_STORAGE_KEY, _auth_token(configured_password))
+            else:
+                try:
+                    await preferences.remove(AUTH_STORAGE_KEY)
+                except Exception:
+                    pass
+            unlock()
+            return
+        login_message.value = "密碼錯誤"
+        login_message.color = "#B71C1C"
+        password_field.value = ""
+        page.update()
+
+    def show_login():
+        nonlocal password_field, remember_box, login_message
+        password_field = ft.TextField(
+            label="密碼", password=True, can_reveal_password=True,
+            width=300, autofocus=True, on_submit=submit_login)
+        remember_box = ft.Checkbox(label="在此瀏覽器記住登入", value=True)
+        login_message = ft.Text("", size=12)
+        try:
+            login_button = ft.Button(
+                content="登入", icon=getattr(I, "LOGIN", None),
+                on_click=submit_login)
+        except Exception:
+            login_button = ft.ElevatedButton(text="登入", on_click=submit_login)
+        if not configured_password:
+            password_field.disabled = True
+            remember_box.disabled = True
+            login_button.disabled = True
+            login_message.value = "網站尚未設定 APP_PASSWORD，已安全鎖定。"
+            login_message.color = "#B71C1C"
+        card = ft.Container(
+            content=ft.Column([
+                ft.Text("量化交易燈號系統", size=24, weight=ft.FontWeight.BOLD),
+                ft.Text("請先登入，才能查看或修改投資資料。", size=12),
+                password_field,
+                remember_box,
+                login_button,
+                login_message,
+            ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            width=360, padding=24, border_radius=16, bgcolor="#FFFFFF")
+        page.add(ft.Column(
+            [card], expand=True,
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER))
+
+    password_field = remember_box = login_message = None
+    remembered = None
+    if configured_password:
+        try:
+            remembered = await preferences.get(AUTH_STORAGE_KEY)
+        except Exception:
+            remembered = None
+    expected = _auth_token(configured_password) if configured_password else ""
+    if (isinstance(remembered, str) and expected
+            and hmac.compare_digest(remembered, expected)):
+        unlock()
+    else:
+        show_login()
+
+
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     try:
