@@ -466,18 +466,27 @@ def make_allocation_rows(alloc: dict) -> list:
 def make_summary_text(s: dict) -> str:
     """顯示總資產、現金、成本與已／未實現績效。"""
     current_return = s.get("current_return")
-    if current_return is None:
+    if current_return is None and s.get("unrealized_pnl") is not None:
         current_return = (s.get("unrealized_pnl", 0) / s["invested"]
                           if s.get("invested") else 0.0)
+    total_assets = (f"{s['total_assets']:,.0f}" if s.get("total_assets") is not None
+                    else "待行情")
+    market_value = (f"{s['market_value']:,.0f}" if s.get("market_value") is not None
+                    else "待行情")
+    current_gain = (f"{s['unrealized_pnl']:+,.0f}（{current_return*100:+.1f}%）"
+                    if s.get("unrealized_pnl") is not None else "待行情")
+    total_pnl = (f"{s['total_pnl']:+,.0f}" if s.get("total_pnl") is not None else "待行情")
+    total_return = (f"{s['total_return']*100:+.1f}%" if s.get("total_return") is not None
+                    else "待行情")
     return (
-        f"總資產 {s.get('total_assets', 0):,.0f}　"
-        f"持倉市值 {s.get('market_value', 0):,.0f}　"
+        f"總資產 {total_assets}　"
+        f"持倉市值 {market_value}　"
         f"現金 {s.get('cash', 0):,.0f}\n"
         f"持倉成本 {s['invested']:,.0f}　"
-        f"目前收益 {s['unrealized_pnl']:+,.0f}（{current_return*100:+.1f}%）　"
+        f"目前收益 {current_gain}　"
         f"已實現 {s['realized_pnl']:+,.0f}\n"
-        f"證券總損益 {s['total_pnl']:+,.0f}　"
-        f"累計成本報酬率 {s['total_return']*100:+.1f}%　·　"
+        f"證券總損益 {total_pnl}　"
+        f"累計成本報酬率 {total_return}　·　"
         f"持倉 lot {s['n_open']} · 已平倉 {s['n_closed']}"
     )
 
@@ -996,8 +1005,9 @@ def _build_app(page: ft.Page, on_logout=None):
     j_msg = ft.Text("", size=11, color="#B71C1C")
     j_summary = ft.Text("尚無紀錄", size=12, weight=ft.FontWeight.BOLD,
                         color=getattr(C, "GREY_700", "#616161"))
-    j_summary_card = ft.Container(
-        content=j_summary, bgcolor="#E3F2FD", padding=12, border_radius=12)
+    j_quote_status = ft.Text("", size=10, color=getattr(C, "GREY_700", "#616161"))
+    j_summary_card = ft.Container(content=ft.Column([j_summary, j_quote_status], spacing=4),
+                                  bgcolor="#E3F2FD", padding=12, border_radius=12)
     try:
         j_records_btn = ft.Button(content="展開投資紀錄", icon=getattr(I, "EXPAND_MORE", None))
     except Exception:
@@ -1194,17 +1204,22 @@ def _build_app(page: ft.Page, on_logout=None):
     async def _auto_update():
         """啟動時背景增量更新一次(受 6 小時節流;不打擾操作)。"""
         try:
+            quote_res = await asyncio.to_thread(journal.refresh_open_market_data)
             res = await asyncio.to_thread(update_symbols, _update_targets())
             try:                                   # 背景刷新費半市場燈
                 from core import market_regime
                 await asyncio.to_thread(market_regime.refresh_sox)
             except Exception:
                 pass
+            refresh_journal()
+            if quote_res["symbols"]:
+                j_quote_status.value = (
+                    f"市值資料：更新 {quote_res['updated']} 檔、已最新 {quote_res['current']} 檔、"
+                    f"無法取得 {quote_res['failed']} 檔（以最近收盤計算）")
             if res.get("updated"):
                 scan_msg.value = f"已自動更新每日資料到 {res['asof']}(更新 {res['updated']} 檔)"
                 scan_msg.color = "#2E7D32"
-                refresh_journal()
-                page.update()
+            page.update()
         except Exception:
             pass
 

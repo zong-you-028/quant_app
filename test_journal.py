@@ -219,6 +219,21 @@ def test_current_assets_cash_and_transactions():
     journal.set_cash_balance(base_cash, "測試清理")
 
 
+def test_unpriced_holding_is_not_reported_as_cost_value():
+    """行情不存在時，市值與收益必須保持待行情，不能退回成本。"""
+    from main import make_summary_text
+
+    journal.init_journal()
+    tid = journal.add_buy("NOQUOTE", 10000, 100, "無行情測試")
+    s = journal.summary()
+    assert s["market_value"] is None
+    assert s["total_assets"] is None
+    assert s["unrealized_pnl"] is None
+    assert s["current_return"] is None
+    assert "待行情" in make_summary_text(s)
+    journal.delete_trade(tid)
+
+
 if __name__ == "__main__":
     test_journal_roundtrip()
     test_add_buy_validation()
@@ -228,3 +243,4 @@ if __name__ == "__main__":
     test_update_partial_reopen()
     test_current_assets_cash_and_transactions()
     print("投資紀錄(journal)CRUD + 總資產 + 定期定額 + 手動編輯/部分賣出/復原 PASSED。")
+    test_unpriced_holding_is_not_reported_as_cost_value()

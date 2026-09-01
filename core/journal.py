@@ -25,7 +25,7 @@ import datetime as _dt
 
 import pandas as pd
 
-from core.data_pipeline import load_ohlcv, get_stock_name, ensure_data
+from core.data_pipeline import load_ohlcv, get_stock_name, ensure_data, update_data
 from core.journal_storage import dialect, get_journal_conn, insert_id
 
 get_conn = get_journal_conn
@@ -165,6 +165,18 @@ def get_last_close(symbol: str):
         pass
     return None
 
+
+
+def refresh_open_market_data() -> dict:
+    """更新所有持有中的標的行情；失敗時不以成本偽造市值。"""
+    symbols = list(dict.fromkeys(
+        t["symbol"] for t in list_trades() if t["status"] == "open"
+    ))
+    result = {"updated": 0, "current": 0, "failed": 0, "symbols": len(symbols)}
+    for symbol in symbols:
+        status = update_data(symbol)
+        result[status] = result.get(status, 0) + 1
+    return result
 
 def get_close_on(symbol: str, date_str: str):
     """取某日(或其之前最近一個交易日)的收盤價;查無回傳 None。"""
@@ -633,25 +645,22 @@ def summary() -> dict:
     invested = sum(t["amount"] for t in open_t)             # 總投入 = 只算持倉(賣出移除)
     cost_all = sum(t["amount"] for t in trades)             # 累計投入(報酬率基底)
     realized = sum(t["pnl"] for t in closed_t if t["pnl"] is not None)
-    unrealized = sum(t["pnl"] for t in open_t if t["pnl"] is not None)
-    total = realized + unrealized
-
-    def _val(t):  # 持倉現值;無現價(value None)時退回以成本計,確保總資產不漏算
-        v = t.get("value")
-        return v if v is not None else t["amount"]
-
-    market_value = sum(_val(t) for t in open_t)
+    prices_complete = all(t.get("value") is not None for t in open_t)
+    unrealized = sum(t["pnl"] for t in open_t) if prices_complete else None
+    total = (realized + unrealized) if unrealized is not None else None
+    market_value = sum(t["value"] for t in open_t) if prices_complete else None
     realized_proceeds = sum(t["value"] for t in closed_t if t.get("value") is not None)
     cash = cash_balance()
-    total_assets = market_value + cash
+    total_assets = market_value + cash if market_value is not None else None
     return {
         "invested": invested,
         "cost_all": cost_all,
         "realized_pnl": realized,
         "unrealized_pnl": unrealized,
-        "current_return": (unrealized / invested) if invested else 0.0,
+        "current_return": ((unrealized / invested) if invested else 0.0)
+                          if unrealized is not None else None,
         "total_pnl": total,
-        "total_return": (total / cost_all) if cost_all else 0.0,
+        "total_return": (total / cost_all) if total is not None and cost_all else None,
         "market_value": market_value,
         "cash": cash,
         "realized_proceeds": realized_proceeds,
