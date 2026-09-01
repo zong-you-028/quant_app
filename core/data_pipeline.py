@@ -24,6 +24,11 @@ import config
 _INITIALIZED_PATHS = set()
 _INIT_LOCK = threading.Lock()
 _MARKET_SEED_VERSION = "2026-08-28-v1"
+_FINMIND_BLOCKED_UNTIL = None
+
+
+class FinMindBlockedError(RuntimeError):
+    """FinMind rejected this Render egress IP; callers may use TWSE fallback."""
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +388,11 @@ def _finmind_get(dataset: str, data_id: str, start: str) -> pd.DataFrame:
     免 token 可少量使用;config.FINMIND_TOKEN 有值時帶上以提高額度。
     status != 200 視為失敗(例如代號錯誤、超過免費額度),拋出例外。
     """
+    global _FINMIND_BLOCKED_UNTIL
+    if (_FINMIND_BLOCKED_UNTIL is not None
+            and _dt.datetime.now() < _FINMIND_BLOCKED_UNTIL):
+        raise FinMindBlockedError("FinMind ip banned (circuit open)")
+
     params = {"dataset": dataset, "data_id": data_id, "start_date": start}
     headers = {}
     if config.FINMIND_TOKEN:
@@ -407,9 +417,12 @@ def _finmind_get(dataset: str, data_id: str, start: str) -> pd.DataFrame:
         if 400 <= resp.status_code < 500:
             # Invalid credentials, quota or IP ban will not recover by retrying.
             msg = js.get("msg") or resp.reason or "client error"
-            raise RuntimeError(
-                f"FinMind {dataset}/{data_id} HTTP {resp.status_code}: {msg}"
-            )
+            if resp.status_code == 403 and "ip banned" in str(msg).lower():
+                _FINMIND_BLOCKED_UNTIL = _dt.datetime.now() + _dt.timedelta(minutes=30)
+                raise FinMindBlockedError(
+                    f"FinMind {dataset}/{data_id} HTTP 403: {msg}"
+                )
+            raise RuntimeError(f"FinMind {dataset}/{data_id} HTTP {resp.status_code}: {msg}")
         try:
             resp.raise_for_status()
         except requests.RequestException as ex:
@@ -422,6 +435,64 @@ def _finmind_get(dataset: str, data_id: str, start: str) -> pd.DataFrame:
             raise RuntimeError(f"FinMind {dataset} 失敗:{js.get('msg')}")
         return pd.DataFrame(js.get("data", []))
     raise RuntimeError(f"FinMind {dataset}/{data_id} 更新失敗: {last_error}")
+
+
+def _twse_recent_prices(symbol: str, asof=None) -> pd.DataFrame:
+    """Fetch current/previous month OHLCV from the official TWSE endpoint."""
+    end = pd.Timestamp(asof or _dt.datetime.now()).normalize()
+    months = [end, end - pd.DateOffset(months=1)]
+    rows = []
+    for month in months:
+        resp = requests.get(
+            "https://www.twse.com.tw/exchangeReport/STOCK_DAY",
+            params={"response": "json", "date": month.strftime("%Y%m01"),
+                    "stockNo": symbol},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        js = resp.json()
+        if js.get("stat") != "OK":
+            continue
+        for values in js.get("data", []):
+            if len(values) < 9:
+                continue
+            y, m, d = (int(part) for part in values[0].split("/"))
+
+            def number(value):
+                return pd.to_numeric(str(value).replace(",", ""), errors="coerce")
+
+            rows.append({
+                "symbol": symbol,
+                "date": f"{y + 1911:04d}-{m:02d}-{d:02d}",
+                "open": number(values[3]), "high": number(values[4]),
+                "low": number(values[5]), "close": number(values[6]),
+                "volume": number(values[1]),
+            })
+    out = pd.DataFrame(rows)
+    if out.empty:
+        raise RuntimeError(f"TWSE 查無 {symbol} 最近行情")
+    return out.dropna(subset=["close"]).drop_duplicates("date").sort_values("date")
+
+
+def fetch_twse_recent_data(symbol: str) -> None:
+    """Merge official TWSE recent prices into the existing local history."""
+    init_db()
+    fresh = _twse_recent_prices(symbol)
+    conn = get_conn()
+    old = pd.read_sql_query(
+        "SELECT symbol,date,open,high,low,close,volume FROM ohlcv WHERE symbol = ?",
+        conn, params=(symbol,),
+    )
+    combined = pd.concat([old, fresh], ignore_index=True)
+    combined = combined.drop_duplicates("date", keep="last").sort_values("date")
+    combined = _adjust_corporate_actions(combined)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM ohlcv WHERE symbol = ?", (symbol,))
+    conn.commit()
+    combined.to_sql("ohlcv", conn, if_exists="append", index=False)
+    conn.commit()
+    conn.close()
 
 
 def _adjust_corporate_actions(ohlcv: pd.DataFrame) -> pd.DataFrame:
@@ -478,7 +549,11 @@ def fetch_real_data(symbol: str, start: str = None) -> None:
     init_db()
 
     # 1) 日頻股價
-    px = _finmind_get("TaiwanStockPrice", symbol, start)
+    try:
+        px = _finmind_get("TaiwanStockPrice", symbol, start)
+    except FinMindBlockedError:
+        fetch_twse_recent_data(symbol)
+        return
     if px.empty:
         raise RuntimeError(f"FinMind 查無 {symbol} 股價(代號是否正確?例:2330)")
     ohlcv = pd.DataFrame({

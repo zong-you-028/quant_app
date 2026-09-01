@@ -58,6 +58,7 @@ def test_finmind_token_uses_authorization_header(monkeypatch):
 
 def test_finmind_does_not_retry_403(monkeypatch):
     calls = []
+    monkeypatch.setattr(dp, "_FINMIND_BLOCKED_UNTIL", None)
 
     class Response:
         status_code = 403
@@ -76,3 +77,17 @@ def test_finmind_does_not_retry_403(monkeypatch):
     else:
         raise AssertionError("403 should raise")
     assert len(calls) == 1
+
+
+def test_fetch_real_data_uses_twse_when_finmind_ip_is_blocked(monkeypatch):
+    used = []
+    monkeypatch.setattr(dp, "init_db", lambda: None)
+    monkeypatch.setattr(
+        dp, "_finmind_get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(dp.FinMindBlockedError("ip banned")),
+    )
+    monkeypatch.setattr(dp, "fetch_twse_recent_data", lambda symbol: used.append(symbol))
+
+    dp.fetch_real_data("2330")
+
+    assert used == ["2330"]
