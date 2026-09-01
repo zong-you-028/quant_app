@@ -448,3 +448,32 @@ LGBM_PARAMS_REG = {
     "n_jobs": -1,
     "verbosity": -1,
 }
+
+# ===========================================================================
+# Conservative AI: 固定少量穩定特徵、淺樹、月度再平衡與嚴格 OOS 啟用門檻
+# ===========================================================================
+# 只保留中期動能、趨勢、乖離、波動與籌碼變化；不做每折動態特徵搜尋。
+CONSERVATIVE_FEATURE_COLS = [
+    "mom_20", "mom_60", "trend", "sma_gap", "vol_20", "chip_ratio_chg",
+]
+CONSERVATIVE_LGBM_PARAMS = {
+    "n_estimators": 120,
+    "learning_rate": 0.025,
+    "num_leaves": 5,
+    "max_depth": 2,
+    "min_child_samples": 150,
+    "subsample": 0.7,
+    "subsample_freq": 1,
+    "colsample_bytree": 0.8,
+    "reg_alpha": 1.5,
+    "reg_lambda": 8.0,
+    "random_state": 42,
+    "n_jobs": -1,
+    "verbosity": -1,
+}
+CONSERVATIVE_TOP_K = 3
+CONSERVATIVE_REBALANCE_DAYS = 20
+CONSERVATIVE_SIGNAL_LOW_Q = 0.20
+CONSERVATIVE_SIGNAL_HIGH_Q = 0.80
+CONSERVATIVE_MAX_TURNOVER = 18.0       # 每年總換手上限
+CONSERVATIVE_MAX_SHARPE_DECAY = 0.50    # IS→OOS 夏普最多衰減 50%

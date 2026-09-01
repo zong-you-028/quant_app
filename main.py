@@ -35,6 +35,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False   # 負號正常顯示(避免�
 
 import flet as ft
 
+from core.conservative_ai import format_conservative_report, run_conservative_wfa
 import config
 from core.data_pipeline import ensure_data, ensure_db, get_stock_name, load_ohlcv, update_symbols
 from core.exit_radar import RadarSettings, analyze_exit_radar
@@ -843,6 +844,10 @@ def _build_app(page: ft.Page, on_logout=None):
         update_btn = ft.Button(content="更新每日資料", icon=getattr(I, "CLOUD_DOWNLOAD", None))
     except Exception:
         update_btn = ft.ElevatedButton(text="更新每日資料", icon=getattr(I, "CLOUD_DOWNLOAD", None))
+    try:
+        conservative_ai_btn = ft.Button(content="驗證保守 AI", icon=getattr(I, "SCIENCE", None))
+    except Exception:
+        conservative_ai_btn = ft.ElevatedButton(text="驗證保守 AI", icon=getattr(I, "SCIENCE", None))
     progress = ft.ProgressBar(visible=False)      # 個股分析進度條
     scan_progress = ft.ProgressBar(visible=False) # 本月持有進度條
 
@@ -947,6 +952,11 @@ def _build_app(page: ft.Page, on_logout=None):
     )
     scan_msg = ft.Text("", size=12, weight=ft.FontWeight.BOLD)  # 加入庫存的結果提示
     scan_state = {"res": None}                  # 暫存最近一次本月持有結果(給零股配置器用)
+    conservative_ai_panel = ft.Column([
+        ft.Text("固定 6 項特徵、深度 2 的淺樹、每 20 個交易日再平衡。需同時通過 OOS Sharpe、006208、衰減與換手四道門檻。",
+                size=12, color=getattr(C, "GREY", "#9E9E9E"))
+    ], spacing=8)
+
     # 防禦模式開關(融資濾網):預設關=衝報酬;開=空頭少賠但平時報酬低
     defensive_switch = ft.Switch(
         label="防禦模式(融資濾網 · 空頭少賠、平時報酬低)",
@@ -1133,6 +1143,27 @@ def _build_app(page: ft.Page, on_logout=None):
             page.update()
 
     scan_btn.on_click = on_scan
+
+    async def on_run_conservative_ai(e):
+        conservative_ai_btn.disabled = True
+        scan_progress.visible = True
+        conservative_ai_panel.controls = [ft.Text("以 purged walk-forward 驗證中，約需一分鐘...", size=12)]
+        page.update()
+        try:
+            result = await asyncio.to_thread(run_conservative_wfa, None, False)
+            color = "#1B5E20" if result["gate"]["eligible"] else "#B71C1C"
+            conservative_ai_panel.controls = [
+                ft.Text("保守 AI 驗證", size=14, weight=ft.FontWeight.BOLD, color=color),
+                ft.Text(format_conservative_report(result), size=12, selectable=True),
+            ]
+        except Exception as ex:
+            conservative_ai_panel.controls = [ft.Text(f"驗證失敗：{ex}", size=12, color="#B71C1C")]
+        finally:
+            conservative_ai_btn.disabled = False
+            scan_progress.visible = False
+            page.update()
+
+    conservative_ai_btn.on_click = on_run_conservative_ai
 
     # --- 零股配置器事件 ---
     async def on_allocate(e):
@@ -1567,8 +1598,12 @@ def _build_app(page: ft.Page, on_logout=None):
 
     # 分頁 2:本月持有(相對強弱輪動)+ 零股配置器
     tab_holdings = ft.Column(
-        [ft.Row([scan_btn, update_btn], spacing=8),
+        [ft.Row([scan_btn, update_btn, conservative_ai_btn], spacing=8),
          defensive_switch,
+         ft.Text("保守 AI 驗證（研究用途；未通過門檻不產生交易建議）", size=14,
+                 weight=ft.FontWeight.BOLD),
+         conservative_ai_panel,
+         ft.Divider(),
          scan_progress, scan_title, scan_msg, scan_panel,
          ft.Divider(),
          ft.Text("零股配置器(輸入預算 → 每支該買幾股)", size=14,
