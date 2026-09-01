@@ -617,6 +617,7 @@ def summary() -> dict:
       cost_all          : 累計投入(含已平倉;僅作報酬率基底)
       realized_pnl      : 已實現損益 = Σ(賣出所得 − 投入)[已平倉]
       unrealized_pnl    : 未實現損益 = Σ(現值 − 投入)[持有中]
+      current_return    : 目前持倉收益率 = 未實現損益 / 目前持倉成本
       total_pnl         : 已實現 + 未實現
       total_return      : total_pnl / cost_all(對「曾投入的總本金」算報酬)
       market_value      : 持倉現值(持有中;無現價則以成本計)
@@ -648,6 +649,7 @@ def summary() -> dict:
         "cost_all": cost_all,
         "realized_pnl": realized,
         "unrealized_pnl": unrealized,
+        "current_return": (unrealized / invested) if invested else 0.0,
         "total_pnl": total,
         "total_return": (total / cost_all) if cost_all else 0.0,
         "market_value": market_value,

@@ -465,12 +465,16 @@ def make_allocation_rows(alloc: dict) -> list:
 # ---------------------------------------------------------------------------
 def make_summary_text(s: dict) -> str:
     """顯示總資產、現金、成本與已／未實現績效。"""
+    current_return = s.get("current_return")
+    if current_return is None:
+        current_return = (s.get("unrealized_pnl", 0) / s["invested"]
+                          if s.get("invested") else 0.0)
     return (
         f"總資產 {s.get('total_assets', 0):,.0f}　"
         f"持倉市值 {s.get('market_value', 0):,.0f}　"
         f"現金 {s.get('cash', 0):,.0f}\n"
         f"持倉成本 {s['invested']:,.0f}　"
-        f"未實現 {s['unrealized_pnl']:+,.0f}　"
+        f"目前收益 {s['unrealized_pnl']:+,.0f}（{current_return*100:+.1f}%）　"
         f"已實現 {s['realized_pnl']:+,.0f}\n"
         f"證券總損益 {s['total_pnl']:+,.0f}　"
         f"累計成本報酬率 {s['total_return']*100:+.1f}%　·　"
@@ -1656,11 +1660,14 @@ def _build_app(page: ft.Page, on_logout=None):
 #              programmatic 的 view=WEB_BROWSER 在 0.85 會 add_web_socket 報錯)
 # 新版 ft.run(main)、舊版 ft.app(target=main),try/except 相容。
 async def main(page: ft.Page):
-    """先驗證 APP_PASSWORD；成功後才建立會讀取投資資料的主介面。"""
+    """本機直接開啟；Web 部署先驗證 APP_PASSWORD 才載入投資資料。"""
     page.title = "量化交易燈號系統｜登入"
     page.theme_mode = getattr(ft.ThemeMode, "LIGHT", None)
     page.padding = 20
     configured_password = os.environ.get("APP_PASSWORD", "")
+    web_deployment = os.environ.get("FLET_FORCE_WEB_SERVER", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
     preferences = ft.SharedPreferences()
 
     def clear_page():
@@ -1733,6 +1740,11 @@ async def main(page: ft.Page):
             [card], expand=True,
             alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER))
+
+    if not web_deployment:
+        clear_page()
+        _build_app(page, on_logout=None)
+        return
 
     password_field = remember_box = login_message = None
     remembered = None

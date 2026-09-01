@@ -82,6 +82,8 @@ def test_total_assets_and_snapshot():
     # 恆等式:總資產 = 持倉現值 = 總投入(持倉) + 未實現
     assert abs(s["total_assets"] - s["market_value"]) < 1e-6
     assert abs(s["total_assets"] - (s["invested"] + s["unrealized_pnl"])) < 1e-6
+    expected_current_return = s["unrealized_pnl"] / s["invested"]
+    assert abs(s["current_return"] - expected_current_return) < 1e-9
     # 快照:寫入一筆 asset_history,且記下的總資產與 summary 一致
     before = len(journal.list_asset_history())
     snap = journal.snapshot_assets()
