@@ -4,7 +4,7 @@ from core import data_pipeline as dp
 def test_update_symbols_reports_errors_and_does_not_throttle_total_failure(monkeypatch):
     saved = []
     monkeypatch.setattr(dp, "needs_update", lambda symbol: True)
-    monkeypatch.setattr(dp, "fetch_real_data",
+    monkeypatch.setattr(dp, "_refresh_market_data",
                         lambda symbol: (_ for _ in ()).throw(RuntimeError("API limit")))
     monkeypatch.setattr(dp, "_meta_set", lambda key, value: saved.append((key, value)))
 
@@ -19,7 +19,7 @@ def test_update_symbols_reports_errors_and_does_not_throttle_total_failure(monke
 def test_update_symbols_records_successful_refresh(monkeypatch):
     saved = []
     monkeypatch.setattr(dp, "needs_update", lambda symbol: True)
-    monkeypatch.setattr(dp, "fetch_real_data", lambda symbol: None)
+    monkeypatch.setattr(dp, "_refresh_market_data", lambda symbol: None)
     monkeypatch.setattr(dp, "_meta_set", lambda key, value: saved.append((key, value)))
 
     result = dp.update_symbols(["2330"], ignore_throttle=True)
@@ -91,3 +91,44 @@ def test_fetch_real_data_uses_twse_when_finmind_ip_is_blocked(monkeypatch):
     dp.fetch_real_data("2330")
 
     assert used == ["2330"]
+
+
+def test_routine_refresh_uses_twse_for_cached_symbol(monkeypatch):
+    used = []
+    monkeypatch.setattr(dp, "has_symbol", lambda symbol: True)
+    monkeypatch.setattr(dp, "fetch_twse_latest_data", lambda symbol: used.append(symbol))
+    monkeypatch.setattr(
+        dp, "fetch_real_data",
+        lambda symbol: (_ for _ in ()).throw(AssertionError("FinMind should not be used")),
+    )
+
+    dp._refresh_market_data("2330")
+
+    assert used == ["2330"]
+
+
+def test_twse_snapshot_is_downloaded_once(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dp, "_TWSE_SNAPSHOT_CACHE", None)
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [{
+                "Date": "1150831", "Code": "2330", "OpeningPrice": "2,395.00",
+                "HighestPrice": "2,405.00", "LowestPrice": "2,375.00",
+                "ClosingPrice": "2,405.00", "TradeVolume": "32,792,740",
+            }]
+
+    monkeypatch.setattr(
+        dp.requests, "get", lambda *args, **kwargs: calls.append(1) or Response()
+    )
+
+    first = dp._twse_latest_snapshot()
+    second = dp._twse_latest_snapshot()
+
+    assert len(calls) == 1
+    assert first.iloc[0]["symbol"] == "2330"
+    assert second.iloc[0]["close"] == 2405

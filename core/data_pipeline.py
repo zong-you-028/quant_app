@@ -25,6 +25,7 @@ _INITIALIZED_PATHS = set()
 _INIT_LOCK = threading.Lock()
 _MARKET_SEED_VERSION = "2026-08-28-v1"
 _FINMIND_BLOCKED_UNTIL = None
+_TWSE_SNAPSHOT_CACHE = None
 
 
 class FinMindBlockedError(RuntimeError):
@@ -417,10 +418,12 @@ def _finmind_get(dataset: str, data_id: str, start: str) -> pd.DataFrame:
         if 400 <= resp.status_code < 500:
             # Invalid credentials, quota or IP ban will not recover by retrying.
             msg = js.get("msg") or resp.reason or "client error"
-            if resp.status_code == 403 and "ip banned" in str(msg).lower():
-                _FINMIND_BLOCKED_UNTIL = _dt.datetime.now() + _dt.timedelta(minutes=30)
+            if (resp.status_code == 402
+                    or (resp.status_code == 403 and "ip banned" in str(msg).lower())):
+                # Quota resets hourly; an IP ban is also temporary.
+                _FINMIND_BLOCKED_UNTIL = _dt.datetime.now() + _dt.timedelta(hours=1)
                 raise FinMindBlockedError(
-                    f"FinMind {dataset}/{data_id} HTTP 403: {msg}"
+                    f"FinMind {dataset}/{data_id} HTTP {resp.status_code}: {msg}"
                 )
             raise RuntimeError(f"FinMind {dataset}/{data_id} HTTP {resp.status_code}: {msg}")
         try:
@@ -475,10 +478,46 @@ def _twse_recent_prices(symbol: str, asof=None) -> pd.DataFrame:
     return out.dropna(subset=["close"]).drop_duplicates("date").sort_values("date")
 
 
-def fetch_twse_recent_data(symbol: str) -> None:
-    """Merge official TWSE recent prices into the existing local history."""
+def _twse_latest_snapshot() -> pd.DataFrame:
+    """Fetch the latest daily rows for the entire listed market in one request."""
+    global _TWSE_SNAPSHOT_CACHE
+    now = _dt.datetime.now()
+    if (_TWSE_SNAPSHOT_CACHE is not None
+            and (now - _TWSE_SNAPSHOT_CACHE[0]).total_seconds() < 300):
+        return _TWSE_SNAPSHOT_CACHE[1]
+    resp = requests.get(
+        "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+        headers={"User-Agent": "Mozilla/5.0"}, timeout=30,
+    )
+    resp.raise_for_status()
+    rows = []
+    for item in resp.json():
+        raw_date = str(item.get("Date", ""))
+        if len(raw_date) != 7:
+            continue
+
+        def number(value):
+            return pd.to_numeric(str(value).replace(",", ""), errors="coerce")
+
+        rows.append({
+            "symbol": str(item.get("Code", "")).strip(),
+            "date": f"{int(raw_date[:3]) + 1911:04d}-{raw_date[3:5]}-{raw_date[5:7]}",
+            "open": number(item.get("OpeningPrice")),
+            "high": number(item.get("HighestPrice")),
+            "low": number(item.get("LowestPrice")),
+            "close": number(item.get("ClosingPrice")),
+            "volume": number(item.get("TradeVolume")),
+        })
+    out = pd.DataFrame(rows).dropna(subset=["symbol", "close"])
+    if out.empty:
+        raise RuntimeError("TWSE 全市場最新行情為空")
+    _TWSE_SNAPSHOT_CACHE = (now, out)
+    return out
+
+
+def _merge_twse_prices(symbol: str, fresh: pd.DataFrame) -> None:
+    """Merge supplied TWSE rows without downloading or replacing old history."""
     init_db()
-    fresh = _twse_recent_prices(symbol)
     conn = get_conn()
     old = pd.read_sql_query(
         "SELECT symbol,date,open,high,low,close,volume FROM ohlcv WHERE symbol = ?",
@@ -493,6 +532,29 @@ def fetch_twse_recent_data(symbol: str) -> None:
     combined.to_sql("ohlcv", conn, if_exists="append", index=False)
     conn.commit()
     conn.close()
+
+
+def fetch_twse_recent_data(symbol: str) -> None:
+    """Merge official TWSE recent prices into the existing local history."""
+    _merge_twse_prices(symbol, _twse_recent_prices(symbol))
+
+
+def fetch_twse_latest_data(symbol: str) -> None:
+    """Update one symbol from the cached all-market snapshot."""
+    snapshot = _twse_latest_snapshot()
+    fresh = snapshot[snapshot["symbol"] == symbol]
+    if fresh.empty:
+        # Non-listed/exceptional symbol: use the monthly endpoint as fallback.
+        fresh = _twse_recent_prices(symbol)
+    _merge_twse_prices(symbol, fresh)
+
+
+def _refresh_market_data(symbol: str) -> None:
+    """Use TWSE for routine refreshes; FinMind is reserved for missing history."""
+    if has_symbol(symbol):
+        fetch_twse_latest_data(symbol)
+    else:
+        fetch_real_data(symbol)
 
 
 def _adjust_corporate_actions(ohlcv: pd.DataFrame) -> pd.DataFrame:
@@ -724,7 +786,7 @@ def update_data(symbol: str, force: bool = False) -> str:
     if not force and not needs_update(symbol):
         return "current"
     try:
-        fetch_real_data(symbol)
+        _refresh_market_data(symbol)
         return "updated"
     except Exception:
         return "failed"
@@ -762,7 +824,7 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
             st = "current"
         else:
             try:
-                fetch_real_data(s)
+                _refresh_market_data(s)
                 st = "updated"
             except Exception as ex:
                 st = "failed"
