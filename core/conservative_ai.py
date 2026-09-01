@@ -30,7 +30,7 @@ def eligibility_gate(fin: dict, robustness: dict) -> dict:
 
 def build_low_turnover_portfolio(scores: pd.DataFrame, daily_returns: pd.DataFrame,
                                  rebalance_days: int = None, top_k: int = None,
-                                 cost: float = None) -> tuple[pd.Series, pd.DataFrame, pd.Series]:
+                                 cost: float = None, rank_weights=None) -> tuple[pd.Series, pd.DataFrame, pd.Series]:
     """以固定週期、前 K 名等權建倉，回傳淨報酬、權重及每日總換手。
 
     分數只在再平衡日讀取；中間日完全沿用上一期權重，因此不會因每日模型雜訊換股。
@@ -50,7 +50,12 @@ def build_low_turnover_portfolio(scores: pd.DataFrame, daily_returns: pd.DataFra
             ranked = scores.loc[date].dropna().sort_values(ascending=False).head(top_k)
             current = pd.Series(0.0, index=scores.columns)
             if len(ranked):
-                current.loc[ranked.index] = 1.0 / len(ranked)
+                if rank_weights is not None:
+                    raw = np.asarray(rank_weights[:len(ranked)], dtype=float)
+                    raw = raw / raw.sum()
+                    current.loc[ranked.index] = raw
+                else:
+                    current.loc[ranked.index] = 1.0 / len(ranked)
         weights.loc[date] = current
 
     turnover = weights.diff().abs().sum(axis=1)
@@ -208,19 +213,27 @@ def _alpha_X(frame: pd.DataFrame) -> pd.DataFrame:
     return X[config.ALPHA_FEATURE_COLS].replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
 
-def _forward_alpha_targets(panel: dict) -> dict:
-    """未來 N 日個股報酬減 006208 報酬；只作訓練標籤，不進特徵。"""
+def _forward_alpha_targets(panel: dict, horizons=None, beta_neutral: bool = False) -> dict:
+    """未來多視窗個股超額報酬；可選用決策當下估計的 252 日 Beta 中性化。"""
     from core.data_pipeline import load_ohlcv
+    horizons = tuple(horizons or (config.FUTURE_N,))
     bench = load_ohlcv(config.BENCHMARK_SYMBOL)
     if bench is None or bench.empty or "close" not in bench:
         raise RuntimeError("缺少 006208 收盤資料，無法建立相對超額報酬標籤。")
     bench_close = bench["close"].astype(float).sort_index()
-    bench_fwd = bench_close.shift(-config.FUTURE_N) / bench_close - 1.0
+    bench_ret = bench_close.pct_change()
     targets = {}
     for symbol, feat in panel.items():
         close = feat["close"].astype(float)
-        stock_fwd = close.shift(-config.FUTURE_N) / close - 1.0
-        targets[symbol] = (stock_fwd - bench_fwd.reindex(close.index)).rename("future_alpha")
+        stock_ret = close.pct_change()
+        beta = (stock_ret.rolling(252).cov(bench_ret.reindex(close.index)) /
+                bench_ret.reindex(close.index).rolling(252).var()).clip(-1.0, 3.0)
+        components = []
+        for horizon in horizons:
+            stock_fwd = close.shift(-horizon) / close - 1.0
+            bench_fwd = (bench_close.shift(-horizon) / bench_close - 1.0).reindex(close.index)
+            components.append(stock_fwd - (beta * bench_fwd if beta_neutral else bench_fwd))
+        targets[symbol] = pd.concat(components, axis=1).mean(axis=1).rename("future_alpha")
     return targets
 
 
@@ -251,16 +264,18 @@ def _alpha_fold_scores(model, data: dict, symbols: list[str], lo, hi):
     return pd.DataFrame(scores).sort_index(), pd.DataFrame(returns).sort_index()
 
 
-def run_relative_alpha_wfa(symbols=None, verbose: bool = True) -> dict:
+def run_relative_alpha_wfa(symbols=None, verbose: bool = True, rank_weights=None,
+                           horizons=None, beta_neutral: bool = False) -> dict:
     """候選模型：直接預測未來 20 日打贏 006208 的相對超額報酬。"""
     import lightgbm as lgb
 
     panel, data, _ = build_wfa_dataset(symbols or config.WATCHLIST)
     symbols = list(data)
-    targets = _forward_alpha_targets(panel)
+    horizons = tuple(horizons or (config.FUTURE_N,))
+    targets = _forward_alpha_targets(panel, horizons=horizons, beta_neutral=beta_neutral)
     dates = pd.DatetimeIndex(sorted(set().union(*[data[s]["X"].index for s in symbols])))
     folds = make_folds(dates, config.WFA_TRAIN_MIN_DAYS, config.WFA_TEST_DAYS,
-                       config.WFA_PURGE_DAYS, config.WFA_EXPANDING, config.WFA_TRAIN_WINDOW)
+                       max(config.WFA_PURGE_DAYS, max(horizons)), config.WFA_EXPANDING, config.WFA_TRAIN_WINDOW)
     is_sharpes, oos_parts, turnover_total, used_folds = [], [], 0.0, 0
     for number, (tl, th, sl, sh) in enumerate(folds, start=1):
         tr_lo, tr_hi = dates[tl], dates[th - 1]
@@ -271,11 +286,11 @@ def run_relative_alpha_wfa(symbols=None, verbose: bool = True) -> dict:
         model = lgb.LGBMRegressor(objective="regression", **config.ALPHA_LGBM_PARAMS)
         model.fit(X_train, y_train)
         is_scores, is_returns = _alpha_fold_scores(model, data, symbols, tr_lo, tr_hi)
-        is_net, _, _ = build_low_turnover_portfolio(is_scores, is_returns)
+        is_net, _, _ = build_low_turnover_portfolio(is_scores, is_returns, rank_weights=rank_weights)
         if len(is_net) > 1:
             is_sharpes.append(ev.annualized_sharpe(is_net))
         oos_scores, oos_daily = _alpha_fold_scores(model, data, symbols, te_lo, te_hi)
-        oos_net, _, turnover = build_low_turnover_portfolio(oos_scores, oos_daily)
+        oos_net, _, turnover = build_low_turnover_portfolio(oos_scores, oos_daily, rank_weights=rank_weights)
         if not oos_net.empty:
             oos_parts.append(oos_net)
             turnover_total += float(turnover.sum())
