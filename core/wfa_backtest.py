@@ -104,7 +104,7 @@ def _backtest_symbol(pos: pd.Series, daily_ret: pd.Series, cost: float):
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
-def run_wfa(symbols=None, train_min=None, test_days=None, purge=None,
+def run_legacy_wfa(symbols=None, train_min=None, test_days=None, purge=None,
             expanding=None, benchmark=None, make_plot=False, verbose=True):
     """執行 Walk-Forward 回測,回傳含三階段報表與 OOS 權益曲線的 dict。"""
     symbols = symbols or config.WATCHLIST
@@ -242,6 +242,26 @@ def run_wfa(symbols=None, train_min=None, test_days=None, purge=None,
         print("\n" + result["report_text"])
     return result
 
+# Legacy pipeline note: run_legacy_wfa is retained only for retrospective comparison.
+# All normal callers use the conservative, gate-enforced implementation below.
+def run_wfa(symbols=None, train_min=None, test_days=None, purge=None,
+            expanding=None, benchmark=None, make_plot=False, verbose=True):
+    """預設 WFA：保守 AI，未通過四道 OOS 門檻即不可視為交易模型。
+
+    舊版 Meta/HMM 管線因嚴重 IS→OOS 衰減不再是預設。為防止以舊參數悄悄
+    重啟它，僅保留 symbols 與 verbose；其他 legacy 參數會明確拒絕。
+    """
+    if any(value is not None for value in (train_min, test_days, purge, expanding, benchmark)) or make_plot:
+        raise ValueError("舊版 WFA 參數已停用；請使用 run_legacy_wfa 做純研究對照。")
+    from core.conservative_ai import format_conservative_report, run_conservative_wfa
+    result = run_conservative_wfa(symbols=symbols, verbose=verbose)
+    result["oos_equity"] = result["fin"]["strat_equity"]
+    result["bench_equity"] = result["fin"]["bench_equity"]
+    result["report_text"] = format_conservative_report(result)
+    if verbose:
+        print("\n" + result["report_text"])
+    return result
+
 
 if __name__ == "__main__":
     # 端到端離線驗證:多檔合成(較長序列以產生多個 fold)→ 完整 WFA 管線 → 報表
@@ -249,7 +269,7 @@ if __name__ == "__main__":
     syms = ["AAA", "BBB", "CCC", "DDD", "EEE"]
     for i, s in enumerate(syms):
         seed_sample_data(s, n_days=900, seed=51 + i)
-    res = run_wfa(symbols=syms, train_min=400, test_days=120, verbose=True)
+    res = run_wfa(symbols=syms, verbose=True)
     print("\nfold 數:", res["n_folds"], "| 對標:", res["benchmark"])
     print("OOS 權益末值:", round(float(res["oos_equity"].iloc[-1]), 3),
           "| benchmark 末值:", round(float(res["bench_equity"].iloc[-1]), 3))
