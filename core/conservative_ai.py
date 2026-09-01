@@ -14,6 +14,7 @@ import config
 from core import evaluation as ev
 from core.base_model import LGBMBaseModel
 from core.wfa_backtest import _mask, _stack, build_wfa_dataset, make_folds
+from core.data_pipeline import get_stock_name
 
 
 def eligibility_gate(fin: dict, robustness: dict) -> dict:
@@ -136,6 +137,63 @@ def run_conservative_wfa(symbols=None, verbose: bool = True) -> dict:
         "rob": robustness,
         "gate": gate,
         "oos_returns": oos_returns,
+    }
+
+
+def run_conservative_predictions(symbols=None, validate: bool = True) -> dict:
+    """用全部已知標籤訓練保守模型，對最新一根 K 棒產生前 K 名預測標的。
+
+    validate=True 時先執行完整 purged WFA；未通過四道門檻即回傳空標的，
+    不以舊模型或假資料替代。
+    """
+    validation = run_conservative_wfa(symbols=symbols, verbose=False) if validate else None
+    if validation is not None and not validation["gate"]["eligible"]:
+        return {"eligible": False, "predictions": [], "holdings": [], "validation": validation}
+
+    panel, data, _ = build_wfa_dataset(symbols or config.WATCHLIST)
+    symbols = list(data)
+    X_train, y_train, _ = _stack(
+        data, symbols,
+        min(item["X"].index.min() for item in data.values()),
+        max(item["X"].index.max() for item in data.values()),
+    )
+    if X_train is None or len(X_train) < config.WFA_MIN_TRAIN_SAMPLES:
+        raise RuntimeError("資料不足，無法訓練新版模型產生最新預測。")
+    model = LGBMBaseModel(
+        feature_cols=config.CONSERVATIVE_FEATURE_COLS,
+        params=config.CONSERVATIVE_LGBM_PARAMS,
+        low_q=config.CONSERVATIVE_SIGNAL_LOW_Q,
+        high_q=config.CONSERVATIVE_SIGNAL_HIGH_Q,
+    ).fit(X_train, y_train)
+
+    rows = []
+    for symbol in symbols:
+        feature = panel[symbol].replace([np.inf, -np.inf], np.nan).dropna(subset=["close"])
+        if feature.empty:
+            continue
+        latest = feature.iloc[[-1]]
+        score = float(model.score(latest).iloc[0])
+        if not np.isfinite(score):
+            continue
+        rows.append({
+            "symbol": symbol,
+            "name": get_stock_name(symbol),
+            "score": score,
+            "price": float(latest["close"].iloc[0]),
+            "asof": str(latest.index[-1].date()),
+        })
+    predictions = sorted(rows, key=lambda row: row["score"], reverse=True)[:config.CONSERVATIVE_TOP_K]
+    if not predictions:
+        raise RuntimeError("最新特徵不足，無法產生新版模型預測。")
+    weight = 1.0 / len(predictions)
+    for row in predictions:
+        row["weight"] = weight
+    return {
+        "eligible": True,
+        "predictions": predictions,
+        "holdings": [row["symbol"] for row in predictions],
+        "names": {row["symbol"]: row["name"] for row in predictions},
+        "validation": validation,
     }
 
 

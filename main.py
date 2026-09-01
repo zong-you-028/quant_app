@@ -35,7 +35,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False   # 負號正常顯示(避免�
 
 import flet as ft
 
-from core.conservative_ai import format_conservative_report, run_conservative_wfa
+from core.conservative_ai import run_conservative_predictions
 import config
 from core.data_pipeline import ensure_data, ensure_db, get_stock_name, load_ohlcv, update_symbols
 from core.exit_radar import RadarSettings, analyze_exit_radar
@@ -269,11 +269,42 @@ def apply_fit(ui: dict, res: dict) -> None:
 # ---------------------------------------------------------------------------
 # 今日買賣建議:跑遍 WATCHLIST,依「今日訊號」給每檔買/賣/觀望建議,取 5 支
 def monthly_holdings(defensive: bool = False) -> dict:
-    """跑相對強弱輪動,回傳本期應持有清單與回測統計(供 UI 渲染)。
-    defensive=True 啟用融資濾網防禦模式(空頭少賠、平時報酬低)。"""
-    return rotation.run_rotation(defensive=defensive)
+    """新版模型預測入口；保留 defensive 參數僅為既有呼叫相容。"""
+    return run_conservative_predictions()
 
 
+
+
+def make_prediction_rows(res: dict) -> list:
+    """渲染新版模型直接預測的前 K 標的；驗證未通過則不提供標的。"""
+    validation = res.get("validation") or {}
+    if not res.get("eligible"):
+        return [ft.Container(
+            content=ft.Text("新版模型目前未通過 OOS 門檻，本期不提供預測標的。",
+                            size=13, weight=ft.FontWeight.BOLD, color="#B71C1C"),
+            bgcolor="#FFEBEE", padding=12, border_radius=12)]
+    fin, rob = validation.get("fin", {}), validation.get("rob", {})
+    cards = [ft.Container(
+        content=ft.Column([
+            ft.Text("模型預測資格已通過", size=14, weight=ft.FontWeight.BOLD, color="#1B5E20"),
+            ft.Text(f"OOS Sharpe {rob.get('oos_sharpe', 0):.2f} · 年化 {fin.get('strat_cagr', 0)*100:+.1f}%"
+                    f"（006208 {fin.get('bench_cagr', 0)*100:+.1f}%）· 每 20 個交易日再平衡",
+                    size=11, color=getattr(C, "GREY_700", "#616161")),
+        ], spacing=3), bgcolor="#E8F5E9", padding=12, border_radius=12)]
+    for rank, row in enumerate(res.get("predictions", []), start=1):
+        title = f"{row.get('name', '')} {row['symbol']}".strip()
+        cards.append(ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Text(f"{rank}. {title}", size=17, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"建議權重 {row['weight']*100:.0f}%", size=12,
+                            weight=ft.FontWeight.BOLD, color="#1565C0"),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Text(f"模型分數 {row['score']:+.4f} · 最新收盤 {row['price']:.2f} · 資料日 {row['asof']}",
+                        size=12, color=getattr(C, "GREY_700", "#616161")),
+            ], spacing=5), bgcolor=getattr(C, "GREY_100", "#F5F5F5"),
+            padding=12, border_radius=12))
+    return cards
 def make_holdings_rows(res: dict, on_add=None, held_trades=None,
                        on_renew=None) -> list:
     """
@@ -834,20 +865,17 @@ def _build_app(page: ft.Page, on_logout=None):
         run_btn = ft.Button(content="分析這檔", icon=getattr(I, "SEARCH", None))
     except Exception:
         run_btn = ft.ElevatedButton(text="分析這檔", icon=getattr(I, "SEARCH", None))
-    # 本月持有清單按鈕(相對強弱輪動;新舊版相容)
+    # 新版模型預測按鈕(新舊版相容)
     try:
-        scan_btn = ft.Button(content="本月持有清單", icon=getattr(I, "LEADERBOARD", None))
+        scan_btn = ft.Button(content="取得新版模型標的", icon=getattr(I, "LEADERBOARD", None))
     except Exception:
-        scan_btn = ft.ElevatedButton(text="本月持有清單", icon=getattr(I, "LEADERBOARD", None))
+        scan_btn = ft.ElevatedButton(text="取得新版模型標的", icon=getattr(I, "LEADERBOARD", None))
     # 更新每日資料按鈕(增量:抓最新收盤)
     try:
         update_btn = ft.Button(content="更新每日資料", icon=getattr(I, "CLOUD_DOWNLOAD", None))
     except Exception:
         update_btn = ft.ElevatedButton(text="更新每日資料", icon=getattr(I, "CLOUD_DOWNLOAD", None))
-    try:
-        conservative_ai_btn = ft.Button(content="驗證保守 AI", icon=getattr(I, "SCIENCE", None))
-    except Exception:
-        conservative_ai_btn = ft.ElevatedButton(text="驗證保守 AI", icon=getattr(I, "SCIENCE", None))
+
     progress = ft.ProgressBar(visible=False)      # 個股分析進度條
     scan_progress = ft.ProgressBar(visible=False) # 本月持有進度條
 
@@ -942,25 +970,15 @@ def _build_app(page: ft.Page, on_logout=None):
             ft.Text("分析後顯示動能警訊、趨勢確認、關鍵防守與移動停利。", size=11),
         ], spacing=3), padding=14, border_radius=14, bgcolor="#ECEFF1")
     ], spacing=10)
-    # --- 本月持有清單區塊(相對強弱輪動)---
-    scan_title = ft.Text("本月持有清單(相對強弱輪動 + 絕對動能閘門 · 空頭轉現金)", size=14,
-                         weight=ft.FontWeight.BOLD)
+    # --- 新版模型預測標的（四道 OOS 門檻於背景檢查）---
+    scan_title = ft.Text("新版模型預測標的", size=14, weight=ft.FontWeight.BOLD)
     scan_panel = ft.Column(
-        [ft.Text("按上方「本月持有清單」開始(首次抓取真實資料較慢)",
+        [ft.Text("按上方「取得新版模型標的」顯示最新前 3 名預測標的。",
                  size=12, color=getattr(C, "GREY", "#9E9E9E"))],
         spacing=8,
     )
     scan_msg = ft.Text("", size=12, weight=ft.FontWeight.BOLD)  # 加入庫存的結果提示
     scan_state = {"res": None}                  # 暫存最近一次本月持有結果(給零股配置器用)
-    conservative_ai_panel = ft.Column([
-        ft.Text("固定 6 項特徵、深度 2 的淺樹、每 20 個交易日再平衡。需同時通過 OOS Sharpe、006208、衰減與換手四道門檻。",
-                size=12, color=getattr(C, "GREY", "#9E9E9E"))
-    ], spacing=8)
-
-    # 防禦模式開關(融資濾網):預設關=衝報酬;開=空頭少賠但平時報酬低
-    defensive_switch = ft.Switch(
-        label="防禦模式(融資濾網 · 空頭少賠、平時報酬低)",
-        value=getattr(config, "ROTATION_DEFENSIVE", False))
 
     # --- 零股配置器(輸入預算 → 每支該買幾股,等權分散)---
     budget_field = ft.TextField(label="總預算", value="100000", width=120,
@@ -1117,26 +1135,18 @@ def _build_app(page: ft.Page, on_logout=None):
 
     run_btn.on_click = on_run
 
-    # --- 本月持有清單事件(async;相對強弱輪動)---
+    # --- 新版模型預測事件（背景先檢查 OOS 門檻）---
     async def on_scan(e):
         scan_btn.disabled = True
         scan_progress.visible = True
-        scan_panel.controls = [ft.Text("計算動能排名中,請稍候...", size=12)]
+        scan_panel.controls = [ft.Text("新版模型預測中，正在檢查 OOS 門檻...", size=12)]
         page.update()
         try:
-            res = await asyncio.to_thread(monthly_holdings, defensive_switch.value)
+            res = await asyncio.to_thread(monthly_holdings)
             scan_state["res"] = res
-            if res and res.get("holdings"):
-                held = {t["symbol"]: t for t in journal.list_trades()
-                        if t["status"] == "open" and t["source"] == "rotation"}
-                scan_panel.controls = make_holdings_rows(
-                    res, on_add=on_add_inventory, held_trades=held,
-                    on_renew=on_renew_rotation)
-            else:
-                scan_panel.controls = [ft.Text(
-                    "無法產生持有清單(觀察清單資料不足)", size=12)]
+            scan_panel.controls = make_prediction_rows(res)
         except Exception as ex:
-            scan_panel.controls = [ft.Text(f"計算失敗:{ex}", size=12, color="#B71C1C")]
+            scan_panel.controls = [ft.Text(f"預測失敗：{ex}", size=12, color="#B71C1C")]
         finally:
             scan_btn.disabled = False
             scan_progress.visible = False
@@ -1144,26 +1154,6 @@ def _build_app(page: ft.Page, on_logout=None):
 
     scan_btn.on_click = on_scan
 
-    async def on_run_conservative_ai(e):
-        conservative_ai_btn.disabled = True
-        scan_progress.visible = True
-        conservative_ai_panel.controls = [ft.Text("以 purged walk-forward 驗證中，約需一分鐘...", size=12)]
-        page.update()
-        try:
-            result = await asyncio.to_thread(run_conservative_wfa, None, False)
-            color = "#1B5E20" if result["gate"]["eligible"] else "#B71C1C"
-            conservative_ai_panel.controls = [
-                ft.Text("保守 AI 驗證", size=14, weight=ft.FontWeight.BOLD, color=color),
-                ft.Text(format_conservative_report(result), size=12, selectable=True),
-            ]
-        except Exception as ex:
-            conservative_ai_panel.controls = [ft.Text(f"驗證失敗：{ex}", size=12, color="#B71C1C")]
-        finally:
-            conservative_ai_btn.disabled = False
-            scan_progress.visible = False
-            page.update()
-
-    conservative_ai_btn.on_click = on_run_conservative_ai
 
     # --- 零股配置器事件 ---
     async def on_allocate(e):
@@ -1174,7 +1164,7 @@ def _build_app(page: ft.Page, on_logout=None):
             budget = float(budget_field.value)
             res = scan_state.get("res")
             if not res:                          # 還沒按過本月持有 -> 先算一次
-                res = await asyncio.to_thread(monthly_holdings, defensive_switch.value)
+                res = await asyncio.to_thread(monthly_holdings)
                 scan_state["res"] = res
             held = (res.get("held") or res.get("holdings") or []) if res else []
             if not held:
@@ -1598,12 +1588,7 @@ def _build_app(page: ft.Page, on_logout=None):
 
     # 分頁 2:本月持有(相對強弱輪動)+ 零股配置器
     tab_holdings = ft.Column(
-        [ft.Row([scan_btn, update_btn, conservative_ai_btn], spacing=8),
-         defensive_switch,
-         ft.Text("保守 AI 驗證（研究用途；未通過門檻不產生交易建議）", size=14,
-                 weight=ft.FontWeight.BOLD),
-         conservative_ai_panel,
-         ft.Divider(),
+        [ft.Row([scan_btn, update_btn], spacing=8),
          scan_progress, scan_title, scan_msg, scan_panel,
          ft.Divider(),
          ft.Text("零股配置器(輸入預算 → 每支該買幾股)", size=14,
