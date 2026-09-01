@@ -35,7 +35,6 @@ matplotlib.rcParams["axes.unicode_minus"] = False   # 負號正常顯示(避免�
 
 import flet as ft
 
-from core.conservative_ai import analyze_relative_alpha_stock, run_relative_alpha_predictions
 import config
 from core.data_pipeline import ensure_data, ensure_db, get_stock_name, load_ohlcv, update_symbols
 from core.exit_radar import RadarSettings, analyze_exit_radar
@@ -230,7 +229,7 @@ def apply_fit(ui: dict, res: dict) -> None:
              if name and name != res["symbol"] else res["symbol"])
     ui["signal_name"].value = res["verdict_short"]
     ui["signal_sub"].value = (
-        f"{label} · 預期相對超額分數 {res.get('score', res['mom']):+.4f} · 模型排名 {res['rank']}/{res['n']}"
+        f"{label} · 跳過近期的60日動能 {res['mom']*100:+.1f}% · 輪動排名 {res['rank']}/{res['n']}"
         f" · 資料 {res['asof']}")
     ui["signal_card"].bgcolor = res["verdict_color"]
     if "note_hint" in ui:
@@ -267,44 +266,10 @@ def apply_fit(ui: dict, res: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 今日買賣建議:跑遍 WATCHLIST,依「今日訊號」給每檔買/賣/觀望建議,取 5 支
+# 本月持有建議:8檔相對強弱動能輪動，只輸出通過全部閘門者
 def monthly_holdings(defensive: bool = False) -> dict:
-    """新版模型預測入口；保留 defensive 參數僅為既有呼叫相容。"""
-    return run_relative_alpha_predictions()
-
-
-
-
-def make_prediction_rows(res: dict) -> list:
-    """渲染新版模型直接預測的前 K 標的；驗證未通過則不提供標的。"""
-    validation = res.get("validation") or {}
-    if not res.get("eligible"):
-        return [ft.Container(
-            content=ft.Text("新版模型目前未通過 OOS 門檻，本期不提供預測標的。",
-                            size=13, weight=ft.FontWeight.BOLD, color="#B71C1C"),
-            bgcolor="#FFEBEE", padding=12, border_radius=12)]
-    fin, rob = validation.get("fin", {}), validation.get("rob", {})
-    cards = [ft.Container(
-        content=ft.Column([
-            ft.Text("模型預測資格已通過", size=14, weight=ft.FontWeight.BOLD, color="#1B5E20"),
-            ft.Text(f"OOS Sharpe {rob.get('oos_sharpe', 0):.2f} · 年化 {fin.get('strat_cagr', 0)*100:+.1f}%"
-                    f"（006208 {fin.get('bench_cagr', 0)*100:+.1f}%）· 每 20 個交易日再平衡",
-                    size=11, color=getattr(C, "GREY_700", "#616161")),
-        ], spacing=3), bgcolor="#E8F5E9", padding=12, border_radius=12)]
-    for rank, row in enumerate(res.get("predictions", []), start=1):
-        title = f"{row.get('name', '')} {row['symbol']}".strip()
-        cards.append(ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Text(f"{rank}. {title}", size=17, weight=ft.FontWeight.BOLD),
-                    ft.Text(f"建議權重 {row['weight']*100:.0f}%", size=12,
-                            weight=ft.FontWeight.BOLD, color="#1565C0"),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Text(f"模型分數 {row['score']:+.4f} · 最新收盤 {row['price']:.2f} · 資料日 {row['asof']}",
-                        size=12, color=getattr(C, "GREY_700", "#616161")),
-            ], spacing=5), bgcolor=getattr(C, "GREY_100", "#F5F5F5"),
-            padding=12, border_radius=12))
-    return cards
+    """8檔相對強弱輪動入口；只回傳通過全部閘門的實際持有名單。"""
+    return rotation.run_rotation(defensive=defensive)
 def make_holdings_rows(res: dict, on_add=None, held_trades=None,
                        on_renew=None) -> list:
     """
@@ -863,11 +828,11 @@ def _build_app(page: ft.Page, on_logout=None):
         run_btn = ft.Button(content="分析這檔", icon=getattr(I, "SEARCH", None))
     except Exception:
         run_btn = ft.ElevatedButton(text="分析這檔", icon=getattr(I, "SEARCH", None))
-    # 新版模型預測按鈕(新舊版相容)
+    # 8檔動能輪動按鈕(新舊版相容)
     try:
-        scan_btn = ft.Button(content="取得新版模型標的", icon=getattr(I, "LEADERBOARD", None))
+        scan_btn = ft.Button(content="取得8檔輪動名單", icon=getattr(I, "LEADERBOARD", None))
     except Exception:
-        scan_btn = ft.ElevatedButton(text="取得新版模型標的", icon=getattr(I, "LEADERBOARD", None))
+        scan_btn = ft.ElevatedButton(text="取得8檔輪動名單", icon=getattr(I, "LEADERBOARD", None))
     # 更新每日資料按鈕(增量:抓最新收盤)
     try:
         update_btn = ft.Button(content="更新每日資料", icon=getattr(I, "CLOUD_DOWNLOAD", None))
@@ -891,7 +856,7 @@ def _build_app(page: ft.Page, on_logout=None):
     )
 
     # --- 適配說明橫幅(分析後顯示:為什麼符合/不符合 + 閘門邏輯)---
-    trade_hint = ft.Text("分析後顯示:新版模型的相對超額報酬分數與排名",
+    trade_hint = ft.Text("分析後顯示:60日動能排名與全部閘門判定",
                          size=14, weight=ft.FontWeight.BOLD,
                          color=getattr(C, "GREY_700", "#616161"),
                          text_align=ft.TextAlign.CENTER)
@@ -941,7 +906,7 @@ def _build_app(page: ft.Page, on_logout=None):
         )
         return box, val
 
-    rank_box, rank_val = kpi_card("模型排名")
+    rank_box, rank_val = kpi_card("輪動排名")
     abs_box, abs_val = kpi_card("60日報酬")
     vol_box, vol_val = kpi_card("近60日波動")
     kpi_row = ft.Row([rank_box, abs_box, vol_box], spacing=10)
@@ -968,10 +933,10 @@ def _build_app(page: ft.Page, on_logout=None):
             ft.Text("分析後顯示動能警訊、趨勢確認、關鍵防守與移動停利。", size=11),
         ], spacing=3), padding=14, border_radius=14, bgcolor="#ECEFF1")
     ], spacing=10)
-    # --- 新版模型預測標的（四道 OOS 門檻於背景檢查）---
-    scan_title = ft.Text("新版模型預測標的", size=14, weight=ft.FontWeight.BOLD)
+    # --- 8檔動能輪動標的（只顯示通過全部閘門者）---
+    scan_title = ft.Text("8檔動能輪動策略", size=14, weight=ft.FontWeight.BOLD)
     scan_panel = ft.Column(
-        [ft.Text("按上方「取得新版模型標的」顯示最新前 3 名預測標的。",
+        [ft.Text("按上方「取得8檔輪動名單」顯示通過全部閘門的標的；不足名額保留現金。",
                  size=12, color=getattr(C, "GREY", "#9E9E9E"))],
         spacing=8,
     )
@@ -979,7 +944,7 @@ def _build_app(page: ft.Page, on_logout=None):
     scan_state = {"res": None}                  # 暫存最近一次本月持有結果(給零股配置器用)
 
     # --- 零股配置器(輸入預算 → 每支該買幾股,等權分散)---
-    budget_field = ft.TextField(label="總預算", value="100000", width=120,
+    budget_field = ft.TextField(label="總預算", value="50000", width=120,
                                 dense=True, text_size=14)
     try:
         alloc_btn = ft.Button(content="零股配置", icon=getattr(I, "CALCULATE", None))
@@ -1099,13 +1064,13 @@ def _build_app(page: ft.Page, on_logout=None):
         # 進入分析:鎖按鈕、顯示進度條
         run_btn.disabled = True
         progress.visible = True
-        signal_sub.value = "分析中(建立新版模型排名)..."
+        signal_sub.value = "分析中(計算動能排名與閘門)..."
         page.update()
 
         symbol = (symbol_field.value or "2330").strip().upper()
         try:
             # 輪動適配與出場雷達共用同一批本地行情。
-            res = await asyncio.to_thread(analyze_relative_alpha_stock, symbol)
+            res = await asyncio.to_thread(rotation.analyze_stock, symbol)
             apply_fit(ui, res)
             price_df = await asyncio.to_thread(load_ohlcv, symbol)
             open_trade = next((trade for trade in journal.list_trades()
@@ -1133,18 +1098,24 @@ def _build_app(page: ft.Page, on_logout=None):
 
     run_btn.on_click = on_run
 
-    # --- 新版模型預測事件（背景先檢查 OOS 門檻）---
+    # --- 8檔動能輪動事件 ---
     async def on_scan(e):
         scan_btn.disabled = True
         scan_progress.visible = True
-        scan_panel.controls = [ft.Text("新版模型預測中，正在檢查 OOS 門檻...", size=12)]
+        scan_panel.controls = [ft.Text("計算8檔動能排名與全部閘門中...", size=12)]
         page.update()
         try:
             res = await asyncio.to_thread(monthly_holdings)
             scan_state["res"] = res
-            scan_panel.controls = make_prediction_rows(res)
+            held_trades = {
+                t["symbol"]: t for t in journal.list_trades()
+                if t["status"] == "open" and t["source"] == "rotation"
+            }
+            scan_panel.controls = make_holdings_rows(
+                res, on_add=on_add_inventory, held_trades=held_trades,
+                on_renew=on_renew_rotation)
         except Exception as ex:
-            scan_panel.controls = [ft.Text(f"預測失敗：{ex}", size=12, color="#B71C1C")]
+            scan_panel.controls = [ft.Text(f"輪動計算失敗：{ex}", size=12, color="#B71C1C")]
         finally:
             scan_btn.disabled = False
             scan_progress.visible = False
