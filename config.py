@@ -477,3 +477,14 @@ CONSERVATIVE_SIGNAL_LOW_Q = 0.20
 CONSERVATIVE_SIGNAL_HIGH_Q = 0.80
 CONSERVATIVE_MAX_TURNOVER = 18.0       # 每年總換手上限
 CONSERVATIVE_MAX_SHARPE_DECAY = 0.50    # IS→OOS 夏普最多衰減 50%
+
+# 相對超額報酬候選模型：以未來 20 日「個股 − 006208」報酬作為標籤。
+ALPHA_FEATURE_COLS = [
+    "mom_20", "mom_60", "trend", "sma_gap", "vol_20", "chip_ratio_chg",
+    "mom_20_cs_rank", "mom_60_cs_rank",
+]
+ALPHA_LGBM_PARAMS = {
+    **CONSERVATIVE_LGBM_PARAMS,
+    "n_estimators": 160,
+    "min_child_samples": 180,
+}

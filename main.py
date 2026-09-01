@@ -35,7 +35,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False   # 負號正常顯示(避免�
 
 import flet as ft
 
-from core.conservative_ai import run_conservative_predictions
+from core.conservative_ai import run_relative_alpha_predictions
 import config
 from core.data_pipeline import ensure_data, ensure_db, get_stock_name, load_ohlcv, update_symbols
 from core.exit_radar import RadarSettings, analyze_exit_radar
@@ -270,7 +270,7 @@ def apply_fit(ui: dict, res: dict) -> None:
 # 今日買賣建議:跑遍 WATCHLIST,依「今日訊號」給每檔買/賣/觀望建議,取 5 支
 def monthly_holdings(defensive: bool = False) -> dict:
     """新版模型預測入口；保留 defensive 參數僅為既有呼叫相容。"""
-    return run_conservative_predictions()
+    return run_relative_alpha_predictions()
 
 
 

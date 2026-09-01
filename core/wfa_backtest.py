@@ -253,11 +253,11 @@ def run_wfa(symbols=None, train_min=None, test_days=None, purge=None,
     """
     if any(value is not None for value in (train_min, test_days, purge, expanding, benchmark)) or make_plot:
         raise ValueError("舊版 WFA 參數已停用；請使用 run_legacy_wfa 做純研究對照。")
-    from core.conservative_ai import format_conservative_report, run_conservative_wfa
-    result = run_conservative_wfa(symbols=symbols, verbose=verbose)
+    from core.conservative_ai import format_relative_alpha_report, run_relative_alpha_wfa
+    result = run_relative_alpha_wfa(symbols=symbols, verbose=verbose)
     result["oos_equity"] = result["fin"]["strat_equity"]
     result["bench_equity"] = result["fin"]["bench_equity"]
-    result["report_text"] = format_conservative_report(result)
+    result["report_text"] = format_relative_alpha_report(result)
     if verbose:
         print("\n" + result["report_text"])
     return result

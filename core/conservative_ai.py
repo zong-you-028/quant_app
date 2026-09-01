@@ -197,18 +197,144 @@ def run_conservative_predictions(symbols=None, validate: bool = True) -> dict:
     }
 
 
-def format_conservative_report(result: dict) -> str:
-    """供 CLI 或 UI 顯示的可解釋摘要。"""
-    fin, rob, gate = result["fin"], result["rob"], result["gate"]
-    status = "通過，可繼續觀察" if gate["eligible"] else "未通過，不啟用為交易建議"
-    labels = {
-        "oos_sharpe_positive": "OOS Sharpe 為正",
-        "beats_006208": "績效優於 006208",
-        "sharpe_decay_within_50pct": "Sharpe 衰減低於 50%",
-        "low_turnover": "年化換手低於上限",
-    }
-    checks = "；".join(f"{labels[k]}：{'通過' if v else '未通過'}" for k, v in gate["checks"].items())
-    return (f"保守 AI：{status}\n"
+
+
+def _alpha_X(frame: pd.DataFrame) -> pd.DataFrame:
+    """固定欄位並將不可用特徵中性化，確保訓練／預測完全同形。"""
+    X = frame.copy()
+    for col in config.ALPHA_FEATURE_COLS:
+        if col not in X:
+            X[col] = 0.0
+    return X[config.ALPHA_FEATURE_COLS].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+
+def _forward_alpha_targets(panel: dict) -> dict:
+    """未來 N 日個股報酬減 006208 報酬；只作訓練標籤，不進特徵。"""
+    from core.data_pipeline import load_ohlcv
+    bench = load_ohlcv(config.BENCHMARK_SYMBOL)
+    if bench is None or bench.empty or "close" not in bench:
+        raise RuntimeError("缺少 006208 收盤資料，無法建立相對超額報酬標籤。")
+    bench_close = bench["close"].astype(float).sort_index()
+    bench_fwd = bench_close.shift(-config.FUTURE_N) / bench_close - 1.0
+    targets = {}
+    for symbol, feat in panel.items():
+        close = feat["close"].astype(float)
+        stock_fwd = close.shift(-config.FUTURE_N) / close - 1.0
+        targets[symbol] = (stock_fwd - bench_fwd.reindex(close.index)).rename("future_alpha")
+    return targets
+
+
+def _stack_alpha(data: dict, targets: dict, symbols: list[str], lo, hi):
+    Xs, ys = [], []
+    for symbol in symbols:
+        X = data[symbol]["X"]
+        mask = _mask(X.index, lo, hi)
+        y = targets[symbol].reindex(X.index)
+        valid = mask & y.notna()
+        if valid.any():
+            Xs.append(_alpha_X(X.loc[valid]))
+            ys.append(y.loc[valid])
+    if not Xs:
+        return None, None
+    return pd.concat(Xs), pd.concat(ys)
+
+
+def _alpha_fold_scores(model, data: dict, symbols: list[str], lo, hi):
+    scores, returns = {}, {}
+    for symbol in symbols:
+        item = data[symbol]
+        mask = _mask(item["X"].index, lo, hi)
+        if mask.any():
+            X = item["X"].loc[mask]
+            scores[symbol] = pd.Series(model.predict(_alpha_X(X)), index=X.index)
+            returns[symbol] = item["daily_ret"].reindex(X.index).fillna(0.0)
+    return pd.DataFrame(scores).sort_index(), pd.DataFrame(returns).sort_index()
+
+
+def run_relative_alpha_wfa(symbols=None, verbose: bool = True) -> dict:
+    """候選模型：直接預測未來 20 日打贏 006208 的相對超額報酬。"""
+    import lightgbm as lgb
+
+    panel, data, _ = build_wfa_dataset(symbols or config.WATCHLIST)
+    symbols = list(data)
+    targets = _forward_alpha_targets(panel)
+    dates = pd.DatetimeIndex(sorted(set().union(*[data[s]["X"].index for s in symbols])))
+    folds = make_folds(dates, config.WFA_TRAIN_MIN_DAYS, config.WFA_TEST_DAYS,
+                       config.WFA_PURGE_DAYS, config.WFA_EXPANDING, config.WFA_TRAIN_WINDOW)
+    is_sharpes, oos_parts, turnover_total, used_folds = [], [], 0.0, 0
+    for number, (tl, th, sl, sh) in enumerate(folds, start=1):
+        tr_lo, tr_hi = dates[tl], dates[th - 1]
+        te_lo, te_hi = dates[sl], dates[sh - 1]
+        X_train, y_train = _stack_alpha(data, targets, symbols, tr_lo, tr_hi)
+        if X_train is None or len(X_train) < config.WFA_MIN_TRAIN_SAMPLES:
+            continue
+        model = lgb.LGBMRegressor(objective="regression", **config.ALPHA_LGBM_PARAMS)
+        model.fit(X_train, y_train)
+        is_scores, is_returns = _alpha_fold_scores(model, data, symbols, tr_lo, tr_hi)
+        is_net, _, _ = build_low_turnover_portfolio(is_scores, is_returns)
+        if len(is_net) > 1:
+            is_sharpes.append(ev.annualized_sharpe(is_net))
+        oos_scores, oos_daily = _alpha_fold_scores(model, data, symbols, te_lo, te_hi)
+        oos_net, _, turnover = build_low_turnover_portfolio(oos_scores, oos_daily)
+        if not oos_net.empty:
+            oos_parts.append(oos_net)
+            turnover_total += float(turnover.sum())
+            used_folds += 1
+        if verbose:
+            print(f"  relative-alpha fold {number}/{len(folds)}: {te_lo.date()}~{te_hi.date()}")
+    if not oos_parts:
+        raise RuntimeError("相對超額報酬候選模型無法產生 OOS 報酬。")
+    oos_returns = pd.concat(oos_parts).sort_index()
+    benchmark = ev.load_benchmark_returns(config.BENCHMARK_SYMBOL).reindex(oos_returns.index).fillna(0.0)
+    fin = ev.financial_report(oos_returns, benchmark)
+    rob = {"is_sharpe": float(np.mean(is_sharpes)) if is_sharpes else 0.0,
+           "oos_sharpe": ev.annualized_sharpe(oos_returns),
+           "turnover": turnover_total / (len(oos_returns) / ev.PERIODS_PER_YEAR)}
+    rob["sharpe_decay"] = ev.sharpe_decay(rob["is_sharpe"], rob["oos_sharpe"])
+    fin["turnover"] = rob["turnover"]
+    return {"n_folds": used_folds, "fin": fin, "rob": rob,
+            "gate": eligibility_gate(fin, rob), "oos_returns": oos_returns}
+def run_relative_alpha_predictions(symbols=None, validate: bool = True) -> dict:
+    """以相對超額報酬模型產生最新前 3 名；未通過 OOS 門檻就不出標的。"""
+    import lightgbm as lgb
+
+    validation = run_relative_alpha_wfa(symbols=symbols, verbose=False) if validate else None
+    if validation is not None and not validation["gate"]["eligible"]:
+        return {"eligible": False, "predictions": [], "holdings": [], "validation": validation}
+    panel, data, _ = build_wfa_dataset(symbols or config.WATCHLIST)
+    symbols = list(data)
+    targets = _forward_alpha_targets(panel)
+    all_dates = pd.DatetimeIndex(sorted(set().union(*[data[s]["X"].index for s in symbols])))
+    X_train, y_train = _stack_alpha(data, targets, symbols, all_dates[0], all_dates[-1])
+    if X_train is None or len(X_train) < config.WFA_MIN_TRAIN_SAMPLES:
+        raise RuntimeError("資料不足，無法訓練相對超額報酬模型。")
+    model = lgb.LGBMRegressor(objective="regression", **config.ALPHA_LGBM_PARAMS)
+    model.fit(X_train, y_train)
+    rows = []
+    for symbol in symbols:
+        feature = panel[symbol].replace([np.inf, -np.inf], np.nan).dropna(subset=["close"])
+        if feature.empty:
+            continue
+        latest = feature.iloc[[-1]]
+        score = float(model.predict(_alpha_X(latest))[0])
+        if np.isfinite(score):
+            rows.append({"symbol": symbol, "name": get_stock_name(symbol), "score": score,
+                         "price": float(latest["close"].iloc[0]),
+                         "asof": str(latest.index[-1].date())})
+    predictions = sorted(rows, key=lambda row: row["score"], reverse=True)[:config.CONSERVATIVE_TOP_K]
+    if not predictions:
+        raise RuntimeError("最新特徵不足，無法產生相對超額報酬預測。")
+    for row in predictions:
+        row["weight"] = 1.0 / len(predictions)
+    return {"eligible": True, "predictions": predictions,
+            "holdings": [row["symbol"] for row in predictions],
+            "names": {row["symbol"]: row["name"] for row in predictions},
+            "validation": validation}
+
+
+def format_relative_alpha_report(result: dict) -> str:
+    """相對超額報酬模型的簡短研究摘要。"""
+    fin, rob = result["fin"], result["rob"]
+    return (f"相對超額報酬模型：{'通過' if result['gate']['eligible'] else '未通過'}\n"
             f"OOS Sharpe {rob['oos_sharpe']:.2f}｜策略 CAGR {fin['strat_cagr']*100:+.1f}%｜"
-            f"{result['benchmark']} CAGR {fin['bench_cagr']*100:+.1f}%\n"
-            f"IS→OOS Sharpe 衰減 {rob['sharpe_decay']*100:.1f}%｜年化換手 {rob['turnover']:.1f}x\n{checks}")
+            f"006208 CAGR {fin['bench_cagr']*100:+.1f}%｜年化換手 {rob['turnover']:.1f}x")
