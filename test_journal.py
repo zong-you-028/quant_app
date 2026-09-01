@@ -90,6 +90,13 @@ def test_total_assets_and_snapshot():
     hist = journal.list_asset_history()
     assert len(hist) == before + 1
     assert abs(hist[0]["total_assets"] - snap["total_assets"]) < 1e-6
+    journal.update_asset_snapshot(
+        hist[0]["id"], ts="2026-08-31 15:30", invested="10000", total_assets="12500")
+    edited = journal.list_asset_history()[0]
+    assert edited["ts"] == "2026-08-31 15:30"
+    assert edited["invested"] == 10000
+    assert edited["total_assets"] == 12500
+    assert edited["total_pnl"] == 2500
     journal.delete_asset_snapshot(hist[0]["id"])   # 清掉測試快照,不留孤兒
     assert len(journal.list_asset_history()) == before
     journal.delete_trade(tid)

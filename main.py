@@ -428,33 +428,6 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
     return cards
 
 
-def make_allocation_rows(alloc: dict) -> list:
-    """把零股配置結果渲染成卡片:頂部彙總 + 每檔『買幾股 × 股價 = 成本(權重)』。"""
-    rows = []
-    rows.append(ft.Container(
-        content=ft.Text(
-            f"總預算 {alloc['budget']:,.0f} → 已配置 {alloc['spent']:,.0f}"
-            f"(剩餘現金 {alloc['leftover']:,.0f})· 等權分散 {alloc['n']} 檔",
-            size=12, weight=ft.FontWeight.BOLD),
-        bgcolor="#E3F2FD", padding=10, border_radius=10))
-    for x in alloc.get("rows", []):
-        title = f"{x['name']} {x['symbol']}".strip()
-        if x["affordable"]:
-            detail = (f"{x['shares']} 股 × {x['price']:.1f} = "
-                      f"{x['cost']:,.0f}　({x['weight']*100:.0f}%)")
-            color = getattr(C, "GREY_700", "#616161")
-        else:
-            detail = "預算不足,買不到 1 股(加預算或減檔數)"
-            color = "#B71C1C"
-        rows.append(ft.Container(
-            content=ft.Row([ft.Text(title, size=14, weight=ft.FontWeight.BOLD),
-                            ft.Text(detail, size=12, color=color)],
-                           alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=getattr(C, "GREY_100", "#F5F5F5"), padding=10, border_radius=10))
-    return rows
-
-
 # ---------------------------------------------------------------------------
 # 投資紀錄(交易日誌):從 0 記錄投入金額、買入/賣出點位與時間、報酬
 # ---------------------------------------------------------------------------
@@ -746,21 +719,54 @@ def make_dca_rows(plans: list, on_toggle, on_delete) -> list:
     return cards
 
 
-def make_asset_history_rows(history: list, on_delete=None) -> list:
-    """把總資產快照渲染成精簡清單(時間 → 總資產 / 總損益 [+刪除鈕])。"""
+def make_asset_history_rows(history: list, on_delete=None, on_edit=None,
+                            editing_id=None, on_save=None, on_cancel=None) -> list:
+    """把總資產快照渲染成清單，並提供編輯、刪除操作。"""
     rows = []
     for h in history:
+        snap_id = h.get("id")
+        if editing_id == snap_id and on_save is not None:
+            ts_field = ft.TextField(label="時間", value=h.get("ts") or "",
+                                    width=155, dense=True, text_size=12)
+            invested_field = ft.TextField(
+                label="累計投入", value=f"{h.get('invested') or 0:g}",
+                width=115, dense=True, text_size=12)
+            assets_field = ft.TextField(
+                label="總資產", value=f"{h.get('total_assets') or 0:g}",
+                width=115, dense=True, text_size=12)
+            try:
+                save_btn = ft.Button(content="儲存", icon=getattr(I, "SAVE", None))
+                cancel_btn = ft.Button(content="取消")
+            except Exception:
+                save_btn = ft.ElevatedButton(text="儲存", icon=getattr(I, "SAVE", None))
+                cancel_btn = ft.ElevatedButton(text="取消")
+            fields = {"ts": ts_field, "invested": invested_field,
+                      "total_assets": assets_field}
+            save_btn.on_click = lambda e, _id=snap_id, _f=fields: on_save(_id, _f)
+            cancel_btn.on_click = lambda e: on_cancel()
+            rows.append(ft.Container(
+                content=ft.Column([
+                    ft.Row([ts_field, invested_field, assets_field], spacing=6),
+                    ft.Row([save_btn, cancel_btn], spacing=8),
+                ], spacing=6),
+                bgcolor="#FFF3E0", padding=10, border_radius=10))
+            continue
         pnl = h.get("total_pnl") or 0.0
         cells = [ft.Text(h["ts"], size=11, color=getattr(C, "GREY_700", "#616161")),
                  ft.Text(f"總資產 {h.get('total_assets', 0):,.0f}", size=12,
                          weight=ft.FontWeight.BOLD),
                  ft.Text(f"{pnl:+,.0f}", size=12,
                          color="#D32F2F" if pnl >= 0 else "#2E7D32")]
-        if on_delete is not None and h.get("id") is not None:
+        if on_edit is not None and snap_id is not None:
+            cells.append(ft.IconButton(
+                icon=getattr(I, "EDIT_OUTLINED", None), icon_size=16,
+                tooltip="編輯這筆總資產紀錄",
+                on_click=(lambda e, _id=snap_id: on_edit(_id))))
+        if on_delete is not None and snap_id is not None:
             cells.append(ft.IconButton(
                 icon=getattr(I, "DELETE_OUTLINE", None), icon_size=16,
                 icon_color="#B71C1C", tooltip="刪除這筆快照",
-                on_click=(lambda e, _id=h["id"]: on_delete(_id))))
+                on_click=(lambda e, _id=snap_id: on_delete(_id))))
         rows.append(ft.Row(cells, alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                            vertical_alignment=ft.CrossAxisAlignment.CENTER))
     return rows
@@ -941,19 +947,7 @@ def _build_app(page: ft.Page, on_logout=None):
         spacing=8,
     )
     scan_msg = ft.Text("", size=12, weight=ft.FontWeight.BOLD)  # 加入庫存的結果提示
-    scan_state = {"res": None}                  # 暫存最近一次本月持有結果(給零股配置器用)
-
-    # --- 零股配置器(輸入預算 → 每支該買幾股,等權分散)---
-    budget_field = ft.TextField(label="總預算", value="50000", width=120,
-                                dense=True, text_size=14)
-    try:
-        alloc_btn = ft.Button(content="零股配置", icon=getattr(I, "CALCULATE", None))
-    except Exception:
-        alloc_btn = ft.ElevatedButton(text="零股配置", icon=getattr(I, "CALCULATE", None))
-    alloc_panel = ft.Column(
-        [ft.Text("輸入總預算 → 算每支該買幾股(零股、等權分散到本期進場標的)",
-                 size=12, color=getattr(C, "GREY", "#9E9E9E"))],
-        spacing=8)
+    scan_state = {"res": None}
 
     # --- 投資紀錄區塊(交易日誌:從 0 記錄投入/買賣點位與時間/報酬)---
     jrnl_title = ft.Text("匯入目前資產與現金", size=14,
@@ -1124,33 +1118,6 @@ def _build_app(page: ft.Page, on_logout=None):
     scan_btn.on_click = on_scan
 
 
-    # --- 零股配置器事件 ---
-    async def on_allocate(e):
-        alloc_btn.disabled = True
-        alloc_panel.controls = [ft.Text("計算中...", size=12)]
-        page.update()
-        try:
-            budget = float(budget_field.value)
-            res = scan_state.get("res")
-            if not res:                          # 還沒按過本月持有 -> 先算一次
-                res = await asyncio.to_thread(monthly_holdings)
-                scan_state["res"] = res
-            held = (res.get("held") or res.get("holdings") or []) if res else []
-            if not held:
-                alloc_panel.controls = [ft.Text(
-                    "目前無建議進場標的(可能全數轉現金)", size=12)]
-            else:
-                alloc = await asyncio.to_thread(
-                    rotation.allocate_odd_lots, budget, held, None, res.get("names"))
-                alloc_panel.controls = make_allocation_rows(alloc)
-        except Exception as ex:
-            alloc_panel.controls = [ft.Text(f"計算失敗:{ex}", size=12, color="#B71C1C")]
-        finally:
-            alloc_btn.disabled = False
-            page.update()
-
-    alloc_btn.on_click = on_allocate
-
     # --- 每日資料更新 ---
     def _update_targets():
         """要更新的標的:輪動池 + 觀察清單 + 對標 + 庫存中持有(去重)。"""
@@ -1275,7 +1242,8 @@ def _build_app(page: ft.Page, on_logout=None):
         page.update()
 
     # --- 投資紀錄事件 ---
-    j_state = {"editing": None, "records_expanded": False, "history_expanded": False}
+    j_state = {"editing": None, "editing_snapshot": None,
+               "records_expanded": False, "history_expanded": False}
 
     def refresh_journal():
         """重建紀錄清單 + 彙總 + 總資產快照 + 定期定額清單(讀 DB),由呼叫端 page.update()。"""
@@ -1329,7 +1297,10 @@ def _build_app(page: ft.Page, on_logout=None):
         j_history_btn.visible = bool(hist)
         j_history_content.visible = bool(hist) and j_state["history_expanded"]
         j_hist_panel.controls = (
-            make_asset_history_rows(hist, on_delete=on_delete_snapshot) if hist else
+            make_asset_history_rows(
+                hist, on_delete=on_delete_snapshot, on_edit=on_edit_snapshot,
+                editing_id=j_state["editing_snapshot"],
+                on_save=on_save_snapshot, on_cancel=on_cancel_snapshot_edit) if hist else
             [ft.Text("尚無快照,按「記錄總資產」存一筆", size=11,
                      color=getattr(C, "GREY", "#9E9E9E"))])
         if len(hist) >= 2:
@@ -1467,6 +1438,32 @@ def _build_app(page: ft.Page, on_logout=None):
             j_msg.value = f"刪除快照失敗:{ex}"
         page.update()
 
+    def on_edit_snapshot(snap_id):
+        j_msg.value = ""
+        j_state["editing_snapshot"] = snap_id
+        j_state["history_expanded"] = True
+        refresh_journal()
+        page.update()
+
+    def on_cancel_snapshot_edit():
+        j_state["editing_snapshot"] = None
+        refresh_journal()
+        page.update()
+
+    def on_save_snapshot(snap_id, fields):
+        j_msg.value = ""
+        try:
+            journal.update_asset_snapshot(
+                snap_id, ts=fields["ts"].value,
+                invested=fields["invested"].value,
+                total_assets=fields["total_assets"].value)
+            j_state["editing_snapshot"] = None
+            refresh_journal()
+        except Exception as ex:
+            j_msg.value = f"更新總資產紀錄失敗:{ex}"
+            j_msg.color = "#B71C1C"
+        page.update()
+
     def on_delete_trade(trade_id):
         j_msg.value = ""
         try:
@@ -1563,16 +1560,10 @@ def _build_app(page: ft.Page, on_logout=None):
         spacing=16, scroll=_scroll, expand=True,
     )
 
-    # 分頁 2:本月持有(相對強弱輪動)+ 零股配置器
+    # 分頁 2:本月持有(相對強弱輪動)
     tab_holdings = ft.Column(
         [ft.Row([scan_btn, update_btn], spacing=8),
-         scan_progress, scan_title, scan_msg, scan_panel,
-         ft.Divider(),
-         ft.Text("零股配置器(輸入預算 → 每支該買幾股)", size=14,
-                 weight=ft.FontWeight.BOLD),
-         ft.Row([budget_field, alloc_btn], spacing=8,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER),
-         alloc_panel],
+         scan_progress, scan_title, scan_msg, scan_panel],
         spacing=16, scroll=_scroll, expand=True,
     )
 

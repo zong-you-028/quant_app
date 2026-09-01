@@ -375,57 +375,6 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
     }
 
 
-def allocate_odd_lots(budget, symbols, prices=None, names=None) -> dict:
-    """
-    零股配置器:把預算「等金額」分配到各標的,算每檔可買幾股(零股,整數)。
-    先各買 floor(預算/檔數 / 股價) 股,再用剩餘現金「貪婪補在目前金額最低、買得起的那檔」,
-    讓 8 檔盡量等權又把錢用好用滿。回傳每檔股數/成本/權重 + 已配置/剩餘現金。
-    """
-    budget = float(budget or 0)
-    symbols = list(symbols or [])
-    out = {"budget": budget, "rows": [], "spent": 0.0, "leftover": budget,
-           "n": len(symbols)}
-    if budget <= 0 or not symbols:
-        return out
-
-    if prices is None:
-        prices = {}
-        for s in symbols:
-            try:
-                df = load_ohlcv(s)
-                prices[s] = (float(df["close"].iloc[-1])
-                             if df is not None and not df.empty else None)
-            except Exception:
-                prices[s] = None
-    names = names or {}
-    st = {s: {"symbol": s, "name": names.get(s, "") or get_stock_name(s) or "",
-              "price": prices.get(s), "shares": 0, "cost": 0.0} for s in symbols}
-
-    per = budget / len(symbols)
-    for s in symbols:                              # 第一輪:等金額無條件捨去
-        p = st[s]["price"]
-        if p and p > 0:
-            sh = int(per // p)
-            st[s]["shares"], st[s]["cost"] = sh, sh * p
-    leftover = budget - sum(st[s]["cost"] for s in symbols)
-    guard = 0
-    while guard < 100000:                          # 第二輪:剩餘現金補在最被低配且買得起者
-        guard += 1
-        cand = [s for s in symbols if st[s]["price"] and st[s]["price"] <= leftover]
-        if not cand:
-            break
-        s = min(cand, key=lambda x: st[x]["cost"])
-        st[s]["shares"] += 1
-        st[s]["cost"] += st[s]["price"]
-        leftover -= st[s]["price"]
-
-    spent = budget - leftover
-    rows = [{**st[s], "weight": (st[s]["cost"] / spent) if spent > 0 else 0.0,
-             "affordable": st[s]["shares"] > 0} for s in symbols]
-    out.update({"rows": rows, "spent": spent, "leftover": leftover})
-    return out
-
-
 def analyze_stock(symbol, symbols=None, mom_days=None, top_k=None,
                   abs_thresh=None) -> dict:
     """

@@ -713,6 +713,35 @@ def delete_asset_snapshot(snap_id: int) -> None:
     conn.close()
 
 
+def update_asset_snapshot(snap_id: int, *, ts: str, invested, total_assets) -> None:
+    """更新一筆總資產快照，並依總資產減累計投入重算總損益。"""
+    snap_id = int(snap_id)
+    ts = (ts or "").strip()
+    if _parse_date(ts) is None:
+        raise ValueError("時間格式需為 YYYY-MM-DD 或 YYYY-MM-DD HH:MM")
+    invested = float(invested)
+    total_assets = float(total_assets)
+    if not math.isfinite(invested) or invested < 0:
+        raise ValueError("累計投入需為 0 以上的數字")
+    if not math.isfinite(total_assets) or total_assets < 0:
+        raise ValueError("總資產需為 0 以上的數字")
+    init_journal()
+    conn = get_conn()
+    exists = conn.execute(
+        "SELECT 1 FROM asset_history WHERE id = ?", (snap_id,)
+    ).fetchone()
+    if not exists:
+        conn.close()
+        raise ValueError("找不到這筆總資產紀錄")
+    conn.execute(
+        "UPDATE asset_history SET ts = ?, invested = ?, total_assets = ?, "
+        "total_pnl = ? WHERE id = ?",
+        (ts, invested, total_assets, total_assets - invested, snap_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 # ---------------------------------------------------------------------------
 # 定期定額(DCA):建立計畫 + 依排程自動回補買入
 # ---------------------------------------------------------------------------
