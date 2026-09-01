@@ -384,21 +384,43 @@ def _finmind_get(dataset: str, data_id: str, start: str) -> pd.DataFrame:
     status != 200 視為失敗(例如代號錯誤、超過免費額度),拋出例外。
     """
     params = {"dataset": dataset, "data_id": data_id, "start_date": start}
+    headers = {}
     if config.FINMIND_TOKEN:
-        params["token"] = config.FINMIND_TOKEN
+        headers["Authorization"] = f"Bearer {config.FINMIND_TOKEN}"
     last_error = None
     for attempt in range(3):
         try:
-            resp = requests.get(config.FINMIND_URL, params=params, timeout=30)
-            resp.raise_for_status()
-            js = resp.json()
-            if js.get("status") != 200:
-                raise RuntimeError(f"FinMind {dataset} 失敗:{js.get('msg')}")
-            return pd.DataFrame(js.get("data", []))
-        except (requests.RequestException, ValueError, RuntimeError) as ex:
+            resp = requests.get(
+                config.FINMIND_URL, params=params, headers=headers, timeout=30
+            )
+        except requests.RequestException as ex:
             last_error = ex
             if attempt < 2:
                 time.sleep(1.5 * (attempt + 1))
+                continue
+            break
+
+        try:
+            js = resp.json()
+        except ValueError:
+            js = {}
+        if 400 <= resp.status_code < 500:
+            # Invalid credentials, quota or IP ban will not recover by retrying.
+            msg = js.get("msg") or resp.reason or "client error"
+            raise RuntimeError(
+                f"FinMind {dataset}/{data_id} HTTP {resp.status_code}: {msg}"
+            )
+        try:
+            resp.raise_for_status()
+        except requests.RequestException as ex:
+            last_error = ex
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            break
+        if js.get("status") != 200:
+            raise RuntimeError(f"FinMind {dataset} 失敗:{js.get('msg')}")
+        return pd.DataFrame(js.get("data", []))
     raise RuntimeError(f"FinMind {dataset}/{data_id} 更新失敗: {last_error}")
 
 
