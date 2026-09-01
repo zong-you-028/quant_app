@@ -8,7 +8,7 @@ test_ui_logic.py - 無 GUI 驗證「個股分析(策略適配檢查)」的 UI �
 import flet as ft
 
 from main import apply_fit
-from core import rotation
+from core.conservative_ai import analyze_relative_alpha_stock
 
 
 def build_ui():
@@ -28,7 +28,7 @@ def main():
     ui = build_ui()
     before_color = ui["signal_card"].bgcolor
 
-    res = rotation.analyze_stock("2330")        # 模擬按下「分析這檔」
+    res = analyze_relative_alpha_stock("1301")  # 驗證推薦標的使用新版模型分析
     apply_fit(ui, res)
 
     print("=== 個股分析(策略適配)UI 驗證 ===")
@@ -46,7 +46,7 @@ def main():
 
     # --- 斷言:適配大卡顏色已設為判定色(非預設灰,除非剛好弱勢=灰)---
     assert ui["signal_card"].bgcolor in ("#D32F2F", "#2E7D32", "#9E9E9E"), "適配大卡底色未設為判定色"
-    assert ui["signal_name"].value in ("符合策略", "會被擋成現金", "強度不足", "不符合"), "判定文字異常"
+    assert ui["signal_name"].value in ("新版模型入選", "未進前 3 名", "模型暫停"), "判定文字異常"
     # --- 斷言:KPI 已填入 ---
     assert "/" in ui["rank_val"].value, "動能排名未更新(應為 X/N)"
     assert ui["abs_val"].value.endswith("%"), "絕對動能未更新"

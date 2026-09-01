@@ -332,6 +332,64 @@ def run_relative_alpha_predictions(symbols=None, validate: bool = True) -> dict:
             "validation": validation}
 
 
+
+
+def analyze_relative_alpha_stock(symbol: str) -> dict:
+    """回傳個股在相對超額報酬模型中的最新分數與全池排名。"""
+    import lightgbm as lgb
+
+    symbol = (symbol or "").strip().upper()
+    if not symbol:
+        raise ValueError("請輸入股票代號。")
+    validation = run_relative_alpha_wfa(verbose=False)
+    symbols = list(dict.fromkeys([*config.WATCHLIST, symbol]))
+    panel, data, _ = build_wfa_dataset(symbols)
+    if symbol not in data:
+        raise RuntimeError(f"{symbol} 資料不足，無法納入新版模型排名。")
+    symbols = list(data)
+    targets = _forward_alpha_targets(panel)
+    dates = pd.DatetimeIndex(sorted(set().union(*[data[s]["X"].index for s in symbols])))
+    X_train, y_train = _stack_alpha(data, targets, symbols, dates[0], dates[-1])
+    if X_train is None or len(X_train) < config.WFA_MIN_TRAIN_SAMPLES:
+        raise RuntimeError("資料不足，無法建立新版模型排名。")
+    model = lgb.LGBMRegressor(objective="regression", **config.ALPHA_LGBM_PARAMS)
+    model.fit(X_train, y_train)
+    scores = {}
+    for code in symbols:
+        feature = panel[code].replace([np.inf, -np.inf], np.nan).dropna(subset=["close"])
+        if not feature.empty:
+            scores[code] = float(model.predict(_alpha_X(feature.iloc[[-1]]))[0])
+    if symbol not in scores:
+        raise RuntimeError(f"{symbol} 最新特徵不足。")
+    ranked = sorted(scores, key=scores.get, reverse=True)
+    feature = panel[symbol].replace([np.inf, -np.inf], np.nan).dropna(subset=["close"])
+    close = feature["close"].astype(float)
+    last_close = float(close.iloc[-1])
+    day_change = last_close - float(close.iloc[-2]) if len(close) > 1 else 0.0
+    day_pct = day_change / float(close.iloc[-2]) if len(close) > 1 and close.iloc[-2] else 0.0
+    rank = ranked.index(symbol) + 1
+    selected = validation["gate"]["eligible"] and rank <= config.CONSERVATIVE_TOP_K
+    if selected:
+        verdict, color = "新版模型入選", "#D32F2F"
+        note = f"預測未來 {config.FUTURE_N} 日相對 006208 超額報酬排名前 {config.CONSERVATIVE_TOP_K}。"
+    elif not validation["gate"]["eligible"]:
+        verdict, color = "模型暫停", "#B71C1C"
+        note = "新版模型未通過 OOS 門檻，本期不提供進場判定。"
+    else:
+        verdict, color = "未進前 3 名", "#9E9E9E"
+        note = f"新版模型相對超額報酬排名第 {rank}/{len(ranked)}，本期未列入前 3 名。"
+    return {
+        "symbol": symbol, "name": get_stock_name(symbol) or "", "asof": str(feature.index[-1].date()),
+        "score": scores[symbol], "rank": rank, "n": len(ranked), "in_top_k": selected,
+        "verdict_short": verdict, "verdict_color": color, "note": note,
+        "last_close": last_close, "day_change": day_change, "day_change_pct": day_pct,
+        "price5": close.tail(5), "price6": close.tail(126),
+        "mom": float(close.pct_change(60).iloc[-1]) if len(close) > 60 else 0.0,
+        "mom5": float(close.pct_change(5).iloc[-1]) if len(close) > 5 else 0.0,
+        "mom20": float(close.pct_change(20).iloc[-1]) if len(close) > 20 else 0.0,
+        "vol_annual": float(close.pct_change().tail(60).std() * np.sqrt(ev.PERIODS_PER_YEAR)),
+        "mdd": ev.max_drawdown(close.tail(252) / float(close.tail(252).iloc[0])) if len(close) > 1 else 0.0,
+    }
 def format_relative_alpha_report(result: dict) -> str:
     """相對超額報酬模型的簡短研究摘要。"""
     fin, rob = result["fin"], result["rob"]

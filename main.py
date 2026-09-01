@@ -35,7 +35,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False   # 負號正常顯示(避免�
 
 import flet as ft
 
-from core.conservative_ai import run_relative_alpha_predictions
+from core.conservative_ai import analyze_relative_alpha_stock, run_relative_alpha_predictions
 import config
 from core.data_pipeline import ensure_data, ensure_db, get_stock_name, load_ohlcv, update_symbols
 from core.exit_radar import RadarSettings, analyze_exit_radar
@@ -230,7 +230,7 @@ def apply_fit(ui: dict, res: dict) -> None:
              if name and name != res["symbol"] else res["symbol"])
     ui["signal_name"].value = res["verdict_short"]
     ui["signal_sub"].value = (
-        f"{label} · 動能 {res['mom']*100:+.0f}% · 排名 {res['rank']}/{res['n']}"
+        f"{label} · 預期相對超額分數 {res.get('score', res['mom']):+.4f} · 模型排名 {res['rank']}/{res['n']}"
         f" · 資料 {res['asof']}")
     ui["signal_card"].bgcolor = res["verdict_color"]
     if "note_hint" in ui:
@@ -893,7 +893,7 @@ def _build_app(page: ft.Page, on_logout=None):
     )
 
     # --- 適配說明橫幅(分析後顯示:為什麼符合/不符合 + 閘門邏輯)---
-    trade_hint = ft.Text("分析後顯示:這檔符不符合輪動策略(動能排名 + 絕對動能閘門)",
+    trade_hint = ft.Text("分析後顯示:新版模型的相對超額報酬分數與排名",
                          size=14, weight=ft.FontWeight.BOLD,
                          color=getattr(C, "GREY_700", "#616161"),
                          text_align=ft.TextAlign.CENTER)
@@ -943,8 +943,8 @@ def _build_app(page: ft.Page, on_logout=None):
         )
         return box, val
 
-    rank_box, rank_val = kpi_card("動能排名")
-    abs_box, abs_val = kpi_card("絕對動能")
+    rank_box, rank_val = kpi_card("模型排名")
+    abs_box, abs_val = kpi_card("60日報酬")
     vol_box, vol_val = kpi_card("近60日波動")
     kpi_row = ft.Row([rank_box, abs_box, vol_box], spacing=10)
 
@@ -1101,13 +1101,13 @@ def _build_app(page: ft.Page, on_logout=None):
         # 進入分析:鎖按鈕、顯示進度條
         run_btn.disabled = True
         progress.visible = True
-        signal_sub.value = "分析中(載入動能池)..."
+        signal_sub.value = "分析中(建立新版模型排名)..."
         page.update()
 
         symbol = (symbol_field.value or "2330").strip().upper()
         try:
             # 輪動適配與出場雷達共用同一批本地行情。
-            res = await asyncio.to_thread(rotation.analyze_stock, symbol)
+            res = await asyncio.to_thread(analyze_relative_alpha_stock, symbol)
             apply_fit(ui, res)
             price_df = await asyncio.to_thread(load_ohlcv, symbol)
             open_trade = next((trade for trade in journal.list_trades()
