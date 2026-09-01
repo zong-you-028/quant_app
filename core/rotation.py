@@ -35,6 +35,34 @@ def _mdd(equity: pd.Series) -> float:
     return float((equity / equity.cummax() - 1.0).min())
 
 
+def _aligned_performance(net_ret: pd.Series, benchmark_ret: pd.Series,
+                         lookback_days=None) -> dict:
+    """Recompute strategy and benchmark KPIs on identical dates and window."""
+    joined = pd.concat(
+        [net_ret.rename("strategy"), benchmark_ret.rename("benchmark")], axis=1
+    ).dropna()
+    if joined.empty:
+        raise RuntimeError("strategy and benchmark have no overlapping dates")
+    if lookback_days:
+        start = joined.index[-1] - pd.Timedelta(days=int(lookback_days))
+        joined = joined.loc[joined.index >= start]
+    strat_eq = (1.0 + joined["strategy"]).cumprod()
+    bench_eq = (1.0 + joined["benchmark"]).cumprod()
+    years = ((joined.index[-1] - joined.index[0]).days / 365.25
+             if len(joined) > 1 else 0.0)
+    return {
+        "equity": strat_eq,
+        "benchmark_equity": bench_eq,
+        "cagr": _cagr(strat_eq),
+        "benchmark_cagr": _cagr(bench_eq),
+        "mdd": _mdd(strat_eq),
+        "benchmark_mdd": _mdd(bench_eq),
+        "years": years,
+        "start": joined.index[0],
+        "end": joined.index[-1],
+    }
+
+
 # ---------------------------------------------------------------------------
 # 波動式停損停利(ATR):讓停損隨個股波動自動放寬/收緊,免得被雜訊洗掉
 # ---------------------------------------------------------------------------
@@ -254,11 +282,29 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
             sox = market_regime.sox_status()
         except Exception:
             sox = {"ok": False, "risk_on": True}
-    equity = (1.0 + net_ret).cumprod()
+    full_equity = (1.0 + net_ret).cumprod()
 
-    # 大盤代理:等權買進持有全部可用標的
+    # 研究用大盤代理:等權買進持有全部可用標的(不作 UI 正式基準)
     mkt_ret = ret_df.fillna(0.0).mean(axis=1)
     mkt_equity = (1.0 + mkt_ret).cumprod()
+
+    # 正式比較:策略與 006208 使用完全相同的日期及最近 N 天視窗。
+    benchmark_symbol = getattr(config, "BENCHMARK_SYMBOL", "006208")
+    benchmark_label = benchmark_symbol
+    try:
+        ensure_data(benchmark_symbol)
+        benchmark_df = load_ohlcv(benchmark_symbol)
+        benchmark_ret = benchmark_df["close"].astype(float).sort_index().pct_change()
+        perf = _aligned_performance(
+            net_ret, benchmark_ret, getattr(config, "EVAL_LOOKBACK_DAYS", None)
+        )
+        full_perf = _aligned_performance(net_ret, benchmark_ret, None)
+    except Exception:
+        benchmark_label = "等權股票池"
+        perf = _aligned_performance(
+            net_ret, mkt_ret, getattr(config, "EVAL_LOOKBACK_DAYS", None)
+        )
+        full_perf = _aligned_performance(net_ret, mkt_ret, None)
 
     # --- 本期應持有清單:以「最新一日」動能排名(今天要押的就是這幾檔)---
     last_mom = mom_df.iloc[-1].dropna().sort_values(ascending=False)
@@ -275,16 +321,15 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
     fastsell_symbols = ([s for s in last_mom.index
                          if pd.notna(last_fs.get(s)) and last_fs.get(s) < fs_z]
                         if last_fs is not None else [])
-    if defensive:
-        holdings = list(held)                         # 防禦:顯示的就是實際挑出的 K 檔
-        cash_symbols = []
-    else:
-        holdings = [s for s, _, _ in ranking[:top_k]]  # 相對最強前 K(顯示用)
-        cash_symbols = [s for s in holdings if s not in held]
+    candidates = ([s for s, _, _ in ranking[:top_k]]
+                  if not defensive else list(held))
+    cash_symbols = [s for s in candidates if s not in held]
+    holdings = list(held)                              # 對外只提供通過全部閘門者
     # 市場燈 RISK OFF -> 本期整批轉現金(holdings 留作「站回時的口袋名單」)
     if sox_gate and sox.get("ok") and not sox.get("risk_on", True):
-        cash_symbols = list(holdings)
+        cash_symbols = list(candidates)
         held = []
+        holdings = []
 
     # 與「上一個換股日」的實際持有相比,算出買進/賣出/續抱(供操作建議)
     sel_dates = sorted(selections.keys())
@@ -294,16 +339,28 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
     holds = [s for s in held if s in prev_holdings]
 
     return {
-        "equity": equity,                 # 策略權益曲線(含成本)
-        "market_equity": mkt_equity,      # 大盤代理(等權買進持有)
-        "cagr": _cagr(equity),            # 策略年化報酬
-        "mdd": _mdd(equity),              # 策略最大回撤
-        "market_cagr": _cagr(mkt_equity), # 大盤代理年化
-        "market_mdd": _mdd(mkt_equity),   # 大盤代理最大回撤
+        "equity": perf["equity"],
+        "market_equity": perf["benchmark_equity"],
+        "cagr": perf["cagr"],
+        "mdd": perf["mdd"],
+        "market_cagr": perf["benchmark_cagr"],
+        "market_mdd": perf["benchmark_mdd"],
+        "benchmark": benchmark_label,
+        "full_equity": full_equity,
+        "universe_market_equity": mkt_equity,
+        "full_cagr": full_perf["cagr"],
+        "full_market_cagr": full_perf["benchmark_cagr"],
+        "full_mdd": full_perf["mdd"],
+        "full_market_mdd": full_perf["benchmark_mdd"],
+        "full_start": full_perf["start"].strftime("%Y-%m-%d"),
+        "full_end": full_perf["end"].strftime("%Y-%m-%d"),
         "turnover": float(turn.sum()),    # 總換手(倍)
-        "years": (idx[-1] - idx[0]).days / 365.25 if len(idx) > 1 else 0.0,
+        "years": perf["years"],
+        "eval_start": perf["start"].strftime("%Y-%m-%d"),
+        "eval_end": perf["end"].strftime("%Y-%m-%d"),
         "ranking": ranking,               # [(代號, 名稱, 動能)] 由強至弱(全部)
-        "holdings": holdings,             # 本期相對最強前 K(顯示用)
+        "holdings": holdings,             # 通過全部閘門、可實際進場的標的
+        "candidates": candidates,         # 閘門前候選名單(僅供診斷)
         "held": held,                     # 過絕對動能閘門、真的進場的標的
         "cash_symbols": cash_symbols,     # 前 K 中絕對動能翻負 -> 轉現金者
         "abs_mom": abs_mom, "abs_thresh": abs_thresh,  # 閘門設定(供 UI 標示)

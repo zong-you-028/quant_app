@@ -340,14 +340,19 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
     beat = res["cagr"] >= res["market_cagr"]
     stat = ft.Column([
         ft.Text(
-            f"策略年化 {res['cagr']*100:.1f}%　vs　大盤 {res['market_cagr']*100:.1f}%"
+            f"策略年化 {res['cagr']*100:.1f}%　vs　{res.get('benchmark', '大盤')} {res['market_cagr']*100:.1f}%"
             f"　{'✓ 勝出' if beat else '✗ 落後'}",
             size=13, weight=ft.FontWeight.BOLD,
             color="#D32F2F" if beat else "#2E7D32"),
         ft.Text(
-            f"最大回撤 {res['mdd']*100:.1f}%(大盤 {res['market_mdd']*100:.1f}%)"
-            f"　·　約 {res['years']:.0f} 年回測",
+            f"最大回撤 {res['mdd']*100:.1f}%({res.get('benchmark', '大盤')} {res['market_mdd']*100:.1f}%)"
+            f"　·　比較期間 {res.get('eval_start', '—')}～{res.get('eval_end', '—')}",
             size=11, color=getattr(C, "GREY_700", "#616161")),
+        ft.Text(
+            f"全期 CAGR {res.get('full_cagr', 0)*100:.1f}%　vs　"
+            f"{res.get('benchmark', '大盤')} {res.get('full_market_cagr', 0)*100:.1f}%"
+            f"　·　{res.get('full_start', '—')}～{res.get('full_end', '—')}",
+            size=10, color=getattr(C, "GREY", "#9E9E9E")),
         ft.Text(
             f"模式:{'🛡 防禦(融資濾網·空頭少賠)' if res.get('defensive') else '⚡ 標準(衝報酬)'}"
             f" · {res['mom_days']} 日動能選前 {res['top_k']} 強 · 每 {res['rebal_days']} 交易日換股 · 資料到 {res['last_date']}",
@@ -371,15 +376,12 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
     slot = getattr(config, "ROTATION_SLOT_AMOUNT", 30000)
     name_map = res.get("names", {})
     rank_map = {s: (nm, mv) for s, nm, mv in res["ranking"]}
-    cash_set = set(res.get("cash_symbols", []))
-    for i, sym in enumerate(res["holdings"], 1):
+    visible_holdings = list(res.get("held") or res.get("holdings") or [])
+    for i, sym in enumerate(visible_holdings, 1):
         nm, mv = rank_map.get(sym, (name_map.get(sym, ""), 0.0))
         title = f"{nm} {sym}".strip()
-        is_cash = sym in cash_set                      # 絕對動能翻負 -> 轉現金
         is_new = sym in res.get("buys", [])
-        if is_cash:
-            tag, tag_color = "轉現金", "#2E7D32"
-        elif is_new:
+        if is_new:
             tag, tag_color = "買進", "#D32F2F"
         else:
             tag, tag_color = "續抱", "#1565C0"
@@ -395,17 +397,7 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
             vertical_alignment=ft.CrossAxisAlignment.CENTER)
         col = [head]
         held_t = held_trades.get(sym)
-        if is_cash:
-            # 不提供加入庫存,顯示現金原因(RISK OFF / 外資急賣 / 絕對動能翻負)
-            if market_off:
-                reason = "市場 RISK OFF(費半跌破均線)→ 本期轉現金,站回再進"
-            elif sym in (res.get("fastsell_symbols") or []):
-                reason = "⚠ 外資急賣(5日持股驟降)→ 大戶在跑,該檔轉現金"
-            else:
-                reason = "絕對動能翻負(相對最強但仍在跌)→ 建議現金 / 不進場"
-            col.append(ft.Text(reason, size=12, weight=ft.FontWeight.BOLD,
-                               color="#2E7D32"))
-        elif held_t is not None:
+        if held_t is not None:
             # 已持有(上次輪替買入、本期又選到 = 續抱):更新輪替日,不重複開買入欄
             lr = held_t.get("last_rotation") or held_t.get("buy_time", "")[:10]
             col.append(ft.Text(
@@ -453,6 +445,12 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
         cards.append(ft.Container(
             content=ft.Column(col, spacing=6),
             bgcolor=getattr(C, "GREY_100", "#F5F5F5"), padding=12, border_radius=12))
+
+    if not visible_holdings:
+        cards.append(ft.Container(
+            content=ft.Text("本期沒有通過全部閘門的標的，建議維持現金。",
+                            size=13, weight=ft.FontWeight.BOLD, color="#2E7D32"),
+            bgcolor="#E8F5E9", padding=12, border_radius=12))
 
     # 3) 賣出提示(上期持有、本期掉出前 K 的標的)
     sells = res.get("sells", [])
@@ -1210,7 +1208,15 @@ def _build_app(page: ft.Page, on_logout=None):
             scan_msg.value = (
                 f"已更新到 {res['asof']}　更新 {res['updated']} 檔 · "
                 f"已最新 {res['current']} · 失敗 {res['failed']} · 費半燈已更新")
-            scan_msg.color = "#2E7D32"
+            if res.get("failed"):
+                failed = "、".join(res.get("failed_symbols", [])[:6])
+                first_error = next(iter((res.get("errors") or {}).values()), "")
+                scan_msg.value += f"\n失敗標的:{failed or '未知'}"
+                if first_error:
+                    scan_msg.value += f"\n原因:{first_error[:240]}"
+                scan_msg.color = "#B71C1C"
+            else:
+                scan_msg.color = "#2E7D32"
             refresh_journal()       # 庫存現價/損益/停損停利警示一起刷新
         except Exception as ex:
             scan_msg.value = f"更新失敗:{ex}"

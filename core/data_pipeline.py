@@ -13,6 +13,7 @@ import os
 import sqlite3
 import tempfile
 import threading
+import time
 import numpy as np
 import pandas as pd
 import requests
@@ -385,12 +386,20 @@ def _finmind_get(dataset: str, data_id: str, start: str) -> pd.DataFrame:
     params = {"dataset": dataset, "data_id": data_id, "start_date": start}
     if config.FINMIND_TOKEN:
         params["token"] = config.FINMIND_TOKEN
-    resp = requests.get(config.FINMIND_URL, params=params, timeout=30)
-    resp.raise_for_status()
-    js = resp.json()
-    if js.get("status") != 200:
-        raise RuntimeError(f"FinMind {dataset} 失敗:{js.get('msg')}")
-    return pd.DataFrame(js.get("data", []))
+    last_error = None
+    for attempt in range(3):
+        try:
+            resp = requests.get(config.FINMIND_URL, params=params, timeout=30)
+            resp.raise_for_status()
+            js = resp.json()
+            if js.get("status") != 200:
+                raise RuntimeError(f"FinMind {dataset} 失敗:{js.get('msg')}")
+            return pd.DataFrame(js.get("data", []))
+        except (requests.RequestException, ValueError, RuntimeError) as ex:
+            last_error = ex
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(f"FinMind {dataset}/{data_id} 更新失敗: {last_error}")
 
 
 def _adjust_corporate_actions(ohlcv: pd.DataFrame) -> pd.DataFrame:
@@ -643,7 +652,8 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
             except Exception:
                 pass
 
-    res = {"updated": 0, "current": 0, "failed": 0, "throttled": False, "asof": asof}
+    res = {"updated": 0, "current": 0, "failed": 0, "throttled": False,
+           "asof": asof, "failed_symbols": [], "errors": {}}
     seen = set()
     syms = [s for s in symbols if s]
     for i, s in enumerate(syms):
@@ -651,11 +661,22 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
         if not s or s in seen:
             continue
         seen.add(s)
-        st = update_data(s, force=force)
+        if not force and not needs_update(s):
+            st = "current"
+        else:
+            try:
+                fetch_real_data(s)
+                st = "updated"
+            except Exception as ex:
+                st = "failed"
+                res["failed_symbols"].append(s)
+                res["errors"][s] = str(ex)
         res[st] = res.get(st, 0) + 1
         if progress:
             progress(i + 1, len(syms), s, st)
-    _meta_set("last_refresh", _dt.datetime.now().isoformat())
+    # 全部失敗時不要啟動六小時節流，讓修好 Token/API 後可立即重試。
+    if res["failed"] < len(seen):
+        _meta_set("last_refresh", _dt.datetime.now().isoformat())
     return res
 
 
