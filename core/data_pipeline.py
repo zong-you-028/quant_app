@@ -759,7 +759,10 @@ def _last_trading_day(asof: _dt.datetime = None) -> pd.Timestamp:
       FinMind 約傍晚才更新當日 K 棒,故 18:00 前先看「昨天」;再往前跳過週末。
     (無內建台股假日表;若遇平日休市,頂多多刷一次抓不到新資料,由節流吸收。)
     """
-    now = asof or _dt.datetime.now()
+    taipei = _dt.timezone(_dt.timedelta(hours=8))
+    now = asof or _dt.datetime.now(taipei)
+    if now.tzinfo is not None:
+        now = now.astimezone(taipei)
     d = now.date()
     if now.hour < 18:
         d = d - _dt.timedelta(days=1)
@@ -779,15 +782,19 @@ def needs_update(symbol: str, asof: _dt.datetime = None) -> bool:
 
 
 def update_data(symbol: str, force: bool = False) -> str:
-    """單檔:落後才重抓整段覆寫。回傳 'updated' / 'current' / 'failed'。"""
+    """單檔:落後才重抓整段覆寫。回傳 'updated' / 'current' / 'stale' / 'failed'。"""
     symbol = (symbol or "").strip().upper()
     if not symbol:
         return "failed"
     if not force and not needs_update(symbol):
         return "current"
     try:
+        before = last_ohlcv_date(symbol)
         _refresh_market_data(symbol)
-        return "updated"
+        after = last_ohlcv_date(symbol)
+        if after is None or after < _last_trading_day():
+            return "stale"
+        return "updated" if before is None or after > before else "current"
     except Exception:
         return "failed"
 
@@ -797,46 +804,102 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
     """
     批次更新每日資料(只刷新落後者)。
       force=True:每檔都強制重抓;ignore_throttle=True:略過整體時間節流(手動按鈕用)。
-    回傳 {updated, current, failed, throttled(bool), asof}。
+    失敗或仍落後者最多再補抓兩輪；完成者不重抓，統計以最後結果為準。
+    回傳 {updated, current, stale, failed, throttled(bool), asof, recovered, ...}。
     """
-    asof = _last_trading_day().strftime("%Y-%m-%d")
+    global _TWSE_SNAPSHOT_CACHE
+    expected = _last_trading_day()
+    syms = list(dict.fromkeys(s.strip().upper() for s in symbols if s and s.strip()))
+    res = {"updated": 0, "current": 0, "stale": 0, "failed": 0,
+           "throttled": False, "asof": None, "latest_asof": None,
+           "expected_asof": expected.strftime("%Y-%m-%d"),
+           "failed_symbols": [], "stale_symbols": [], "errors": {},
+           "retried_symbols": [], "recovered": 0,
+           "data_dates": {}, "calendar_note": "更新目標僅排除週末，未套用休市日曆"}
+    # A new target date or stale data must never be hidden by the six-hour cache.
     if not force and not ignore_throttle:
         ts = _meta_get("last_refresh")
-        if ts:
+        target = _meta_get("last_refresh_target")
+        if ts and target == res["expected_asof"]:
             try:
                 age = (_dt.datetime.now() - _dt.datetime.fromisoformat(ts)).total_seconds()
-                if age < throttle_hours * 3600:
-                    return {"updated": 0, "current": 0, "failed": 0,
-                            "throttled": True, "asof": asof}
-            except Exception:
+                res["throttled"] = (0 <= age < throttle_hours * 3600
+                                    and all(not needs_update(s) for s in syms))
+            except (ValueError, TypeError):
                 pass
-
-    res = {"updated": 0, "current": 0, "failed": 0, "throttled": False,
-           "asof": asof, "failed_symbols": [], "errors": {}}
-    seen = set()
-    syms = [s for s in symbols if s]
-    for i, s in enumerate(syms):
-        s = s.strip().upper()
-        if not s or s in seen:
-            continue
-        seen.add(s)
-        if not force and not needs_update(s):
-            st = "current"
-        else:
+    initial_dates = {}
+    statuses = {}
+    pending = syms
+    for attempt in range(3):
+        if not pending:
+            break
+        if attempt:
+            time.sleep(1.5 * attempt)
+            # Retry with fresh market data, not the same stale five-minute cache.
+            # All symbols in this pass still share a single successful download.
+            _TWSE_SNAPSHOT_CACHE = None
+            for symbol in pending:
+                if symbol not in res["retried_symbols"]:
+                    res["retried_symbols"].append(symbol)
+        retry = []
+        for i, symbol in enumerate(pending):
+            refresh_attempted = False
             try:
-                _refresh_market_data(s)
-                st = "updated"
+                if symbol not in initial_dates:
+                    initial_dates[symbol] = last_ohlcv_date(symbol)
+                before = initial_dates[symbol]
+                if not res["throttled"] and (force or needs_update(symbol)):
+                    refresh_attempted = True
+                    _refresh_market_data(symbol)
+                after = last_ohlcv_date(symbol)
+                res["data_dates"][symbol] = after.strftime("%Y-%m-%d") if after is not None else None
+                res["errors"].pop(symbol, None)
+                if after is None or after.normalize() < expected:
+                    status = "stale"
+                elif before is None or after > before:
+                    status = "updated"
+                else:
+                    status = "current"
             except Exception as ex:
-                st = "failed"
-                res["failed_symbols"].append(s)
-                res["errors"][s] = str(ex)
-        res[st] = res.get(st, 0) + 1
-        if progress:
-            progress(i + 1, len(syms), s, st)
-    # 全部失敗時不要啟動六小時節流，讓修好 Token/API 後可立即重試。
-    if res["failed"] < len(seen):
+                status = "failed"
+                res["errors"][symbol] = str(ex)
+                try:
+                    after = last_ohlcv_date(symbol)
+                    res["data_dates"][symbol] = after.strftime("%Y-%m-%d") if after is not None else None
+                except Exception:
+                    res["data_dates"][symbol] = None
+            statuses[symbol] = status
+            if refresh_attempted and status in ("failed", "stale"):
+                retry.append(symbol)
+            if progress:
+                progress(i + 1 if attempt == 0 else len(syms), len(syms), symbol, status)
+        pending = retry
+    for symbol, status in statuses.items():
+        res[status] += 1
+        if status in ("failed", "stale"):
+            res[f"{status}_symbols"].append(symbol)
+    res["recovered"] = sum(statuses[s] in ("updated", "current")
+                           for s in res["retried_symbols"])
+    dates = [d for d in res["data_dates"].values() if d]
+    res["asof"] = min(dates) if dates and len(dates) == len(syms) else None
+    res["latest_asof"] = max(dates) if dates else None
+    if syms and not res["failed"] and not res["stale"] and not res["throttled"]:
         _meta_set("last_refresh", _dt.datetime.now().isoformat())
+        _meta_set("last_refresh_target", res["expected_asof"])
     return res
+
+
+def format_update_status(result: dict) -> str:
+    """Report actual stored dates, never the requested date as successful."""
+    oldest = result.get("asof") or "部分缺資料"
+    newest = result.get("latest_asof") or "無"
+    recovery = f" · 自動補抓完成 {result['recovered']} 檔" if result.get("recovered") else ""
+    return (
+        f"資料日 {oldest}～{newest} · 更新 {result['updated']} 檔 · "
+        f"已達目標 {result['current']}{recovery} · 尚未到目標 {result.get('stale', 0)} · "
+        f"失敗 {result['failed']}（目標 {result.get('expected_asof', '未知')}，"
+        "僅排除週末；延遲來源或休市可能尚無新資料）"
+    )
 
 
 def ensure_data(symbol: str, force: bool = False) -> str:

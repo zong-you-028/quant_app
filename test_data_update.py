@@ -1,8 +1,12 @@
+import pandas as pd
+import datetime as dt
+
 from core import data_pipeline as dp
 
 
 def test_update_symbols_reports_errors_and_does_not_throttle_total_failure(monkeypatch):
     saved = []
+    monkeypatch.setattr(dp, "last_ohlcv_date", lambda symbol: None)
     monkeypatch.setattr(dp, "needs_update", lambda symbol: True)
     monkeypatch.setattr(dp, "_refresh_market_data",
                         lambda symbol: (_ for _ in ()).throw(RuntimeError("API limit")))
@@ -19,6 +23,9 @@ def test_update_symbols_reports_errors_and_does_not_throttle_total_failure(monke
 def test_update_symbols_records_successful_refresh(monkeypatch):
     saved = []
     monkeypatch.setattr(dp, "needs_update", lambda symbol: True)
+    dates = iter([None, pd.Timestamp("2026-09-24")])
+    monkeypatch.setattr(dp, "last_ohlcv_date", lambda symbol: next(dates))
+    monkeypatch.setattr(dp, "_last_trading_day", lambda *args: pd.Timestamp("2026-09-24"))
     monkeypatch.setattr(dp, "_refresh_market_data", lambda symbol: None)
     monkeypatch.setattr(dp, "_meta_set", lambda key, value: saved.append((key, value)))
 
@@ -132,3 +139,41 @@ def test_twse_snapshot_is_downloaded_once(monkeypatch):
     assert len(calls) == 1
     assert first.iloc[0]["symbol"] == "2330"
     assert second.iloc[0]["close"] == 2405
+
+
+def test_old_api_response_is_stale_and_reports_actual_date(monkeypatch):
+    saved = []
+    monkeypatch.setattr(dp, "_last_trading_day", lambda *args: pd.Timestamp("2026-09-24"))
+    monkeypatch.setattr(dp, "last_ohlcv_date", lambda symbol: pd.Timestamp("2026-09-23"))
+    monkeypatch.setattr(dp, "_refresh_market_data", lambda symbol: None)
+    monkeypatch.setattr(dp, "_meta_set", lambda *args: saved.append(args))
+    result = dp.update_symbols(["2330", "2330"], ignore_throttle=True)
+    assert result["stale"] == 1
+    assert result["updated"] == 0
+    assert result["asof"] == "2026-09-23"
+    assert result["expected_asof"] == "2026-09-24"
+    assert saved == []
+    assert dp.update_data("2330") == "stale"
+
+
+def test_taipei_clock_and_weekend():
+    utc = dt.timezone.utc
+    assert dp._last_trading_day(dt.datetime(2026, 9, 24, 10, tzinfo=utc)) == pd.Timestamp("2026-09-24")
+    assert dp._last_trading_day(dt.datetime(2026, 9, 24, 9, tzinfo=utc)) == pd.Timestamp("2026-09-23")
+    assert dp._last_trading_day(dt.datetime(2026, 9, 26, 19)) == pd.Timestamp("2026-09-25")
+
+
+def test_new_target_bypasses_recent_throttle(monkeypatch):
+    calls = []
+    dates = iter([pd.Timestamp("2026-09-23"), pd.Timestamp("2026-09-24")])
+    monkeypatch.setattr(dp, "_last_trading_day", lambda *args: pd.Timestamp("2026-09-24"))
+    monkeypatch.setattr(dp, "last_ohlcv_date", lambda symbol: next(dates))
+    monkeypatch.setattr(dp, "needs_update", lambda symbol: True)
+    monkeypatch.setattr(dp, "_meta_get", lambda key: (
+        dt.datetime.now().isoformat() if key == "last_refresh" else "2026-09-23"))
+    monkeypatch.setattr(dp, "_meta_set", lambda *args: None)
+    monkeypatch.setattr(dp, "_refresh_market_data", calls.append)
+    result = dp.update_symbols(["2330"])
+    assert calls == ["2330"]
+    assert result["updated"] == 1
+    assert not result["throttled"]
