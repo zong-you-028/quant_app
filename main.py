@@ -41,6 +41,7 @@ from core.exit_radar import RadarSettings, analyze_exit_radar
 from core import rotation
 from core import journal
 from core.strategy_models import ACTIVE_MODEL_ID, active_model_spec, data_quality as model_data_quality
+from core.portfolio_reconcile import reconcile_portfolio
 
 # --- 新舊版相容:Colors / Icons / Border(新版大寫、舊版小寫)---
 C = getattr(ft, "Colors", None) or getattr(ft, "colors", None)
@@ -336,6 +337,70 @@ def apply_fit(ui: dict, res: dict) -> None:
 def monthly_holdings(defensive: bool = False) -> dict:
     """8檔相對強弱輪動入口；只回傳通過全部閘門的實際持有名單。"""
     return rotation.run_rotation(defensive=defensive, score_mode=ACTIVE_MODEL_ID)
+
+def make_reconciliation_rows(res: dict, positions: list) -> list:
+    """Stock-set comparison only; no trading or journal-write callbacks."""
+    view = reconcile_portfolio(res, positions)
+    ready = view["verified"]
+
+    def stock_text(row, weight=False):
+        title = f"{row['name']} {row['symbol']}".strip()
+        detail = f" · 帳本 {row['shares']:g} 股" if row["shares"] else " · 帳本未持有"
+        if weight:
+            detail += f" · 模型名額 {row['target_weight']:.1%}"
+        return title + detail
+
+    controls = [
+        ft.Text("我的持倉核對", size=18, weight=ft.FontWeight.BOLD),
+        ft.Text("模型最多 8 檔；前 16 名是續留排名範圍，不是持有 16 檔。", size=12, weight=ft.FontWeight.BOLD),
+        ft.Text(f"{'目前應持有' if ready else '歷史模型名單'} {len(view['current'])}/8 檔 · "
+                f"帳本 {view['actual_count']} 檔 · 資料日 {view['asof'] or '未確認'}", size=13, weight=ft.FontWeight.BOLD),
+    ]
+    if not ready:
+        controls.append(ft.Text("；".join(view["issues"]) + "。請更新並重新計算，這份對照不可當成即時買賣清單。",
+                                size=12, color="#B26A00", weight=ft.FontWeight.BOLD))
+    if not view["state_available"]:
+        return [ft.Container(content=ft.Column(controls[:2] + [controls[-1]], spacing=6),
+                             padding=14, border_radius=14, bgcolor="#FFF8E1")]
+    if view["model_execution_date"]:
+        controls.append(ft.Text(f"模型最近執行日 {view['model_execution_date']} · 依 t+2 開盤及缺價延後規則核對，非你的實際成交。", size=11))
+    controls.extend(ft.Text(stock_text(row, weight=True), size=12) for row in view["current"])
+    if not view["current"]:
+        controls.append(ft.Text("此資料日的模型已執行名單為空，配置維持現金。", size=12))
+    controls.append(ft.Text(f"模型名額的現金配置 {view['model_cash_weight']:.1%}；實際比例會隨價格變動，與帳本現金分開。", size=11, color="#455A64"))
+    if not view["actual_count"]:
+        controls.append(ft.Text("帳本尚無持倉。若你實際有股票，先到「投資紀錄」匯入，退出清單才會完整。", size=12, color="#B26A00"))
+    elif view["actual_count"] > 8:
+        controls.append(ft.Text("帳本持有超過 8 檔：可能尚未換股、提前買入或包含其他投資。兩期名單不應合併成 16 檔模型配置。", size=12, color="#B26A00"))
+
+    def group(title, rows, color):
+        controls.append(ft.Divider())
+        controls.append(ft.Text(f"{title} · {len(rows)} 檔", size=13, weight=ft.FontWeight.BOLD, color=color))
+        controls.extend(ft.Text(stock_text(row), size=12) for row in rows)
+        if not rows:
+            controls.append(ft.Text("無", size=12, color="#616161"))
+
+    group("應保留（帳本已有）" if ready else "歷史名單內且帳本持有", view["keep"], "#1565C0")
+    group("待補入（目前名單尚缺）" if ready else "歷史名單內但帳本未持有", view["missing"], "#D32F2F")
+    if view["unheld_outgoing"]:
+        group("目前未持有、下一次將移出，先核對時序" if ready else "歷史名單未持有且下一期移出", view["unheld_outgoing"], "#B26A00")
+    group("依模型應退出（目前名單外）" if ready else "帳本持倉不在歷史名單", view["exit"], "#2E7D32")
+    if view["early"]:
+        group("已提前持有下一次目標，待執行時核對", view["early"], "#B26A00")
+    if view["pending_change"]:
+        controls.append(ft.Divider())
+        controls.append(ft.Text("下一次目標（尚待執行）" if ready else "歷史待執行目標（不可作為即時清單）", size=14, weight=ft.FontWeight.BOLD, color="#B26A00"))
+        date = view["planned_execution_date"] or "後續交易日尚未收錄，待確認"
+        controls.append(ft.Text(f"目標成交日 {date}；目前名單尚未切換，不能把新舊兩期加在一起。", size=12))
+        if view["execution_deferred"]:
+            controls.append(ft.Text("必需開盤價缺漏，模型已延後整批換股；資料齊全前沿用目前名單。", size=12, color="#B26A00"))
+        names = "、".join(f"{row['name']} {row['symbol']}".strip() for row in view["next_target"]) or "全部現金"
+        controls.append(ft.Text(f"下一次應持有 {len(view['next_target'])}/8 檔：{names}", size=12))
+        for label, rows in (("到執行時帳本待補入", view["planned_buys"]), ("到執行時帳本待退出", view["planned_exits"])):
+            names = "、".join(f"{row['name']} {row['symbol']}".strip() for row in rows) or "無"
+            controls.append(ft.Text(f"{label}（依目前帳本）：{names}", size=12))
+    controls.append(ft.Text("以完整帳本為準，未與券商同步。比對所有持倉（含手動與定額），若另有策略請核對用途。只核對股票種類，保留不代表股數或金額已符合；本功能不會下單或修改紀錄。", size=11, color="#455A64"))
+    return [ft.Container(content=ft.Column(controls, spacing=6), padding=14, border_radius=14, bgcolor="#EAF3F8")]
 def make_holdings_rows(res: dict, on_add=None, held_trades=None,
                        on_renew=None, include_model_header: bool = True) -> list:
     """
@@ -365,8 +430,8 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
                         f" · 資料 {sox['asof']}",
                         size=11, color="#FFFFFF"),
                 ft.Text(("歷史市場狀態；請先更新資料再判斷交易。" if stale else
-                         "正常持有(費半在均線上)" if on else
-                         "⚠ 建議整批轉現金,等費半站回均線再進場"),
+                         "市場閘門允許股票配置；目前持有名單以持倉核對為準。" if on else
+                         "最新模型目標轉現金；請依持倉核對的目標成交日切換。"),
                         size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
             ], spacing=2),
             bgcolor="#2E7D32" if on else "#B71C1C",
@@ -419,6 +484,7 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
                 size=10, color=getattr(C, "GREY", "#9E9E9E")))
     cards.append(ft.Container(content=stat, bgcolor="#FFF8E1",
                               padding=12, border_radius=12))
+    cards.append(ft.Text("以下為本期模型目標，異動標籤比較上期模型名單；目前是否應持有或退出，請看上方「我的持倉核對」。", size=11, color="#455A64"))
 
     # 2) 每檔持有卡(等權;新進=買進紅、續抱=藍)+ 一鍵加入庫存
     slot = getattr(config, "ROTATION_SLOT_AMOUNT", 30000)
@@ -430,9 +496,9 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
         title = f"{nm} {sym}".strip()
         is_new = sym in res.get("buys", [])
         if is_new:
-            tag, tag_color = "歷史入選" if stale else "買進候選", "#D32F2F"
+            tag, tag_color = "歷史入選" if stale else "本期模型新入選", "#D32F2F"
         else:
-            tag, tag_color = "歷史續抱" if stale else "續抱候選", "#1565C0"
+            tag, tag_color = "歷史續抱" if stale else "本期模型續留", "#1565C0"
         badge = ft.Container(
             content=ft.Text(tag, size=12, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
             bgcolor=tag_color, padding=ft.Padding(10, 3, 10, 3), border_radius=8)
@@ -502,7 +568,7 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
 
     if not visible_holdings:
         cards.append(ft.Container(
-            content=ft.Text("本期沒有通過全部閘門的標的，建議維持現金。",
+            content=ft.Text("本期沒有通過全部閘門的標的，最新目標為現金；目前名單依持倉核對的執行時序。",
                             size=13, weight=ft.FontWeight.BOLD, color="#2E7D32"),
             bgcolor="#E8F5E9", padding=12, border_radius=12))
 
@@ -511,7 +577,7 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
     if sells:
         names = "、".join(f"{name_map.get(s,'')} {s}".strip() for s in sells)
         cards.append(ft.Container(
-            content=ft.Text(f"{'歷史移出名單' if stale else '賣出候選'}(移出本期目標名單):{names}",
+            content=ft.Text(f"{'歷史移出名單' if stale else '本期模型移出'}(移出本期目標名單):{names}",
                             size=12, weight=ft.FontWeight.BOLD, color="#2E7D32"),
             bgcolor="#E8F5E9", padding=12, border_radius=12))
     return cards
@@ -938,6 +1004,10 @@ def _build_app(page: ft.Page, on_logout=None):
         update_btn = ft.Button(content="更新每日資料", icon=getattr(I, "CLOUD_DOWNLOAD", None))
     except Exception:
         update_btn = ft.ElevatedButton(text="更新每日資料", icon=getattr(I, "CLOUD_DOWNLOAD", None))
+    try:
+        reconcile_btn = ft.Button(content="核對我的持倉", icon=getattr(I, "CHECKLIST", None), disabled=True)
+    except Exception:
+        reconcile_btn = ft.ElevatedButton(text="核對我的持倉", disabled=True)
 
     progress = ft.ProgressBar(visible=False)      # 個股分析進度條
     scan_progress = ft.ProgressBar(visible=False) # 本月持有進度條
@@ -1042,6 +1112,7 @@ def _build_app(page: ft.Page, on_logout=None):
     )
     scan_msg = ft.Text("", size=12, weight=ft.FontWeight.BOLD)  # 加入庫存的結果提示
     scan_state = {"res": None}
+    reconciliation_panel = ft.Column([ft.Text("先計算輪動名單，即可核對目前應持有與帳本待退出股票。", size=12)], spacing=8)
 
     # --- 投資紀錄區塊(交易日誌:從 0 記錄投入/買賣點位與時間/報酬)---
     jrnl_title = ft.Text("匯入目前資產與現金", size=14,
@@ -1187,12 +1258,15 @@ def _build_app(page: ft.Page, on_logout=None):
 
     def invalidate_results(message):
         scan_state["res"] = None
+        reconciliation_panel.controls = [ft.Text("資料更新後請重新計算，再核對持倉。", size=12)]
+        reconcile_btn.disabled = True
         clear_stock_result()
         scan_panel.controls = [ft.Text(message, size=12, color="#455A64")]
 
     def set_computing(busy, message):
         compute_state["busy"] = busy
         run_btn.disabled = scan_btn.disabled = update_btn.disabled = busy
+        reconcile_btn.disabled = busy or scan_state.get("res") is None
         compute_status.value = message
         compute_status.color = "#455A64"
 
@@ -1245,6 +1319,7 @@ def _build_app(page: ft.Page, on_logout=None):
             # 一次性收尾更新
             compute_state["busy"] = False
             run_btn.disabled = scan_btn.disabled = update_btn.disabled = False
+            reconcile_btn.disabled = scan_state.get("res") is None
             _set_button_label(run_btn, "重新分析")
             progress.visible = False
             page.update()
@@ -1256,6 +1331,7 @@ def _build_app(page: ft.Page, on_logout=None):
         if compute_state["busy"]:
             return
         scan_state["res"] = None
+        reconciliation_panel.controls = [ft.Text("計算完成後會自動核對帳本持倉…", size=12)]
         set_computing(True, f"正在計算 {active_model_spec()['label']} 的排名與回測…")
         _set_button_label(scan_btn, "計算中…")
         scan_progress.visible = True
@@ -1267,27 +1343,95 @@ def _build_app(page: ft.Page, on_logout=None):
             check_active_result(res)
             scan_state["res"] = res
             refresh_model_overview(res)
+            trades, positions = await asyncio.to_thread(load_rotation_book)
             held_trades = {
-                t["symbol"]: t for t in journal.list_trades()
+                t["symbol"]: t for t in trades
                 if t["status"] == "open" and t["source"] == "rotation"
             }
             scan_panel.controls = make_holdings_rows(
                 res, on_add=on_add_inventory, held_trades=held_trades,
                 on_renew=on_renew_rotation, include_model_header=False)
+            book_ok = refresh_reconciliation(positions)
             compute_status.value = f"輪動計算完成 · {active_model_spec()['label']}"
+            if not book_ok:
+                compute_status.value += "；持倉核對失敗，請核對帳本或重新核對。"
         except Exception as ex:
+            scan_state["res"] = None
+            reconciliation_panel.controls = [ft.Text("持倉核對尚未完成，請重新計算。", size=12, color="#B26A00")]
             scan_panel.controls = [ft.Text(f"輪動計算失敗：{ex}", size=12, color="#B71C1C")]
             compute_status.value = "輪動計算失敗，可按「重新計算名單」重試。"
             compute_status.color = "#B71C1C"
         finally:
             compute_state["busy"] = False
             run_btn.disabled = scan_btn.disabled = update_btn.disabled = False
+            reconcile_btn.disabled = scan_state.get("res") is None
             _set_button_label(scan_btn, "重新計算名單")
             scan_progress.visible = False
             page.update()
 
     scan_btn.on_click = on_scan
 
+    def load_rotation_book():
+        return journal.list_trades(), journal.positions()
+
+    def refresh_reconciliation(positions, fresh_quality=None):
+        result = scan_state.get("res")
+        if result is None:
+            reconciliation_panel.controls = [ft.Text("先計算輪動名單，再核對目前應持有與帳本待退出股票。", size=12)]
+            return False
+        result = dict(result)
+        if fresh_quality is not None:
+            quality = dict(fresh_quality)
+            quality["stale"] = quality.get("stale", True) or (result.get("data_quality") or {}).get("stale", True)
+            try:
+                model_date = result.get("model_current_asof")
+                target_date = quality.get("target_date")
+                model_old = not model_date or not target_date or pd.Timestamp(model_date) < pd.Timestamp(target_date)
+            except (ValueError, TypeError):
+                model_old = True
+            if model_old:
+                quality["stale"] = True
+                quality["reasons"] = list(quality.get("reasons") or []) + ["模型結果未達目前資料目標，請重新計算"]
+            result["data_quality"] = quality
+            # Persist newly detected staleness across later journal refreshes.
+            scan_state["res"] = result
+            refresh_model_overview(result)
+            if quality["stale"]:
+                scan_panel.controls = make_holdings_rows(result, include_model_header=False)
+        try:
+            reconciliation_panel.controls = make_reconciliation_rows(result, positions)
+            return True
+        except Exception as ex:
+            reconciliation_panel.controls = [ft.Text(f"持倉核對失敗：{ex}；未產生買賣清單。", size=12, color="#B71C1C")]
+            return False
+
+    async def on_reconcile(e):
+        if compute_state["busy"] or scan_state.get("res") is None:
+            return
+        set_computing(True, "正在讀取帳本並核對目前模型名單…")
+        _set_button_label(reconcile_btn, "核對中…")
+        reconciliation_panel.controls = [ft.Text("正在核對持倉與資料時效…", size=12)]
+        page.update()
+        try:
+            positions = await asyncio.to_thread(journal.positions)
+            quality = await asyncio.to_thread(model_data_quality)
+            if refresh_reconciliation(positions, quality):
+                compute_status.value = "持倉核對完成，請依資料日與目標成交日閱讀清單。"
+            else:
+                compute_status.value = "持倉核對失敗，請核對帳本或重新計算。"
+                compute_status.color = "#B71C1C"
+        except Exception as ex:
+            reconciliation_panel.controls = [ft.Text(f"無法讀取持倉：{ex}；未產生買賣清單，請重試。", size=12, color="#B71C1C")]
+            compute_status.value = "持倉核對失敗，可重新核對。"
+            compute_status.color = "#B71C1C"
+        finally:
+            compute_state["busy"] = False
+            run_btn.disabled = scan_btn.disabled = update_btn.disabled = False
+            reconcile_btn.disabled = scan_state.get("res") is None
+            _set_button_label(reconcile_btn, "核對我的持倉")
+            page.update()
+
+    reconcile_btn.on_click = on_reconcile
 
     # --- 每日資料更新 ---
     def _update_targets():
@@ -1411,6 +1555,7 @@ def _build_app(page: ft.Page, on_logout=None):
             await asyncio.gather(painter, return_exceptions=True)
             compute_state["busy"] = False
             run_btn.disabled = scan_btn.disabled = update_btn.disabled = False
+            reconcile_btn.disabled = scan_state.get("res") is None
             _set_button_label(update_btn, final_label)
             update_progress.visible = False
             page.update()
@@ -1569,6 +1714,7 @@ def _build_app(page: ft.Page, on_logout=None):
         dca_panel.controls = (make_dca_rows(plans, on_toggle_dca, on_delete_dca) if plans else
                               [ft.Text("尚無定期定額計畫。設定後按「立即更新」自動補買。",
                                        size=12, color=getattr(C, "GREY", "#9E9E9E"))])
+        refresh_reconciliation(current_positions)
 
     def on_toggle_records(e):
         j_state["records_expanded"] = not j_state["records_expanded"]
@@ -1847,7 +1993,7 @@ def _build_app(page: ft.Page, on_logout=None):
         controls=[ft.Container(content=ft.Column([
             ft.Text("1. 啟動會自動檢查最新資料，頂部顯示進度。也可按「更新每日資料」；若有待續抓或失敗，按更新按鈕接續，確認資料已達目標後再計算。", size=12),
             ft.Text("2. 按「計算輪動名單」，查看成本後績效、排名及閘門結果。", size=12),
-            ft.Text("3. 核對選股依據日、目標成交日與候選名單。名單並非已成交持倉；空缺名額保留現金。", size=12),
+            ft.Text("3. 查看「我的持倉核對」的目前應持有、應保留、待補入、依模型應退出；名單最多 8 檔。前 16 名只是續留範圍。核對目標成交日，待執行目標到執行時才切換。", size=12),
             ft.Text("4. 實際成交後，到「投資紀錄」如實記錄交易的成交價與股數。", size=12),
             ft.Text("「加入庫存」僅新增庫存紀錄、不扣現金；若已記錄交易，勿再加入造成重複記帳。", size=11, color="#455A64"),
             ft.Text("「續抱」只更新紀錄中的輪替日期與停損停利，不代表市場已成交。", size=11, color="#455A64"),
@@ -1855,8 +2001,8 @@ def _build_app(page: ft.Page, on_logout=None):
         ], spacing=7), padding=12)],
     )
     tab_holdings = ft.Column(
-        [ft.Row([scan_btn, update_btn], spacing=8, wrap=True),
-         scan_progress, scan_title, usage_guide, scan_msg, scan_panel],
+        [ft.Row([scan_btn, update_btn, reconcile_btn], spacing=8, wrap=True),
+         scan_progress, scan_msg, reconciliation_panel, scan_title, usage_guide, scan_panel],
         spacing=16, scroll=_scroll, expand=True,
     )
 

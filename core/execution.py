@@ -27,6 +27,7 @@ def backtest_open_execution(targets, opens, closes, lag=2, cost=0.0, rebalance=N
     cash, nav = 1.0, 1.0
     returns, turns, deferred = [], [], []
     pending = False
+    last_execution = None
     for i in range(len(targets)):
         target = intended.iloc[i].to_numpy(dtype=float)
         opening = opens.iloc[i].to_numpy(dtype=float)
@@ -57,6 +58,7 @@ def backtest_open_execution(targets, opens, closes, lag=2, cost=0.0, rebalance=N
                 shares = target * investable / safe_open
                 cash = wealth - (target * investable).sum() - traded * cost
                 previous = target.copy()
+                last_execution = str(targets.index[i].date())
         if np.any((shares != 0) & ~np.isfinite(closing)):
             raise ValueError("Missing valuation for a held stock")
         new_nav = cash + np.sum(shares * np.where(shares != 0, closing, 0.0))
@@ -65,4 +67,11 @@ def backtest_open_execution(targets, opens, closes, lag=2, cost=0.0, rebalance=N
         nav = new_nav
     result = pd.Series(returns, index=targets.index)
     result.attrs["deferred_dates"] = deferred
+    # Expose the last successfully executed target, including deferred opens.
+    # These are model weights at execution, not the drifting closing weights.
+    result.attrs["effective_target_weights"] = {
+        str(symbol): float(weight) for symbol, weight in zip(targets.columns, previous) if weight > 0
+    }
+    result.attrs["last_execution_date"] = last_execution
+    result.attrs["execution_deferred"] = pending
     return result, pd.Series(turns, index=targets.index)

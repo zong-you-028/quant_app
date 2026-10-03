@@ -35,6 +35,23 @@ def test_missing_required_open_defers_until_tradable():
     assert returns.tolist() == pytest.approx([0, 0, 0, .1])
     assert turns.tolist() == pytest.approx([0, 0, 0, 1])
     assert returns.attrs["deferred_dates"] == ["2026-09-23"]
+    assert returns.attrs["effective_target_weights"] == {"A": 1.}
+    assert returns.attrs["last_execution_date"] == "2026-09-24"
+    assert not returns.attrs["execution_deferred"]
+
+
+def test_pending_exit_does_not_change_current_model_holdings():
+    target = frame([1, 1, 1, 0, 0, 0])
+    prices = frame([100]*6)
+    opens = frame([100, 100, 100, 100, 100, np.nan])
+    result, _ = backtest_open_execution(target, opens, prices)
+    assert result.attrs["effective_target_weights"] == {"A": 1.}
+    assert result.attrs["execution_deferred"]
+    assert result.attrs["last_execution_date"] == "2026-09-23"
+    opens.iloc[-1, 0] = 100.
+    completed, _ = backtest_open_execution(target, opens, prices)
+    assert completed.attrs["effective_target_weights"] == {}
+    assert not completed.attrs["execution_deferred"]
 
 
 def test_weekend_is_not_an_extra_execution_bar():

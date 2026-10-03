@@ -2,6 +2,9 @@
 
 ## 2026-10-03
 
+- Added read-only journal reconciliation showing the currently executable model portfolio, kept/missing/outside stocks and separate pending targets. Eight model slots remain fixed; the top-16 buffer never creates a sixteen-stock portfolio. Early purchases and unheld upcoming removals are identified to avoid buy/sell churn.
+- Rechecks refresh journal positions without rerunning the model; journal refreshes update the comparison and market updates invalidate it. Missing execution metadata, stale dates and journal errors never produce live action lists. Candidate labels now explicitly describe model-list changes.
+- Verified reconciliation with 149 regression tests and 18 desktop/mobile checks on isolated public market data and synthetic positions; real journal records stayed untouched. Return values exactly matched the prior execution engine on the same snapshot.
 - Made startup updates visible and resumable, removed duplicate holdings downloads, bounded nested retries and prevented simultaneous shared-cache updates. Journal reads during updates run off the UI loop.
 - Fixed recursive SOX failure recovery, added incremental atomic SOX caching and shipped public market/SOX seeds through 2026-10-02. An isolated 51-symbol live update completed in 21.26 seconds; the next cache check took 0.3 seconds. These timings are local, not Render guarantees.
 - Verified the update changes with 131 regression tests, a formal-database access guard and desktop/mobile browser checks for partial completion, source errors and retry recovery.

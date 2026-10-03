@@ -192,6 +192,8 @@ def test_non_rebalance_sox_exit_has_its_own_pending_execution(monkeypatch):
     assert result["target_execution_date"] is None
     assert result["target_execution_pending"]
     assert result["holdings"] == []
+    assert result["model_current_holdings"] == ["A"]
+    assert result["model_current_weights"] == {"A": 1.}
     # The latest risk-off target is pending; the executable path still owns A.
     assert result["net_returns"].iloc[-1] == pytest.approx(105 / 104 - 1)
 

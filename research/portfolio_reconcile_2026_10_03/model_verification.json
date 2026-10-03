@@ -1,0 +1,31 @@
+{
+  "formal_database_attempts": 0,
+  "external_download_attempts": 0,
+  "asof": "2026-10-02",
+  "model_current": [
+    "1303",
+    "3008",
+    "2395",
+    "2887",
+    "2883",
+    "2301",
+    "3443"
+  ],
+  "latest_target": [
+    "1303",
+    "3008",
+    "2395",
+    "2887",
+    "2883",
+    "3443",
+    "2301"
+  ],
+  "pending_change": false,
+  "model_cash_weight": 0.125,
+  "returns_identical_to_previous_commit": true,
+  "comparison_positions_are_synthetic": true,
+  "sample_exit": [
+    "TEST_OUT"
+  ],
+  "reference_commit": "e841827c2e791c902082cf72263c7dd0e3a1ea77"
+}
