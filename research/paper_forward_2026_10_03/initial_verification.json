@@ -1,0 +1,83 @@
+{
+  "report_kind": "prospective_signal_archive_initialization_only",
+  "archive_path": "D:\\quant_app\\data\\paper_validation\\forward_2026_10_03_v1",
+  "first_status": "recorded_signal",
+  "idempotent_status": "already_sealed",
+  "frozen_at": "2026-10-03T12:58:42.956692+00:00",
+  "recorded_at": "2026-10-03T12:58:42.956692+00:00",
+  "data_date": "2026-10-02",
+  "snapshot_hash": "04e831144928c265dacece92f5a93c355c6a8c553f00f0c6ce1a697a72b358b8",
+  "protocol_hash": "5d2780bb00594ed1cfc65f79d6cd913725bf48d044958fe98041786d6113d66a",
+  "event_hash": "95c6f885f329b41175e9142e4dda10e8a299bf1c8dc797e209ac9e208831c5c7",
+  "event_count": 1,
+  "common_calendar": {
+    "anchor": "2015-01-05",
+    "observations": 2711,
+    "sha256": "88c7405793f1b42cc0c3b95dbb163838f6c295d521868f67a24d02a409d67469"
+  },
+  "runtime": {
+    "numpy": "2.2.6",
+    "pandas": "2.3.2",
+    "python": "3.13.14",
+    "python_implementation": "CPython",
+    "sqlite": "3.50.4"
+  },
+  "evaluation_protocol": {
+    "operational_checkpoint": {
+      "forward_trading_days": 126,
+      "minimum_rebalances": 6
+    },
+    "performance_conclusions_require": "verified future fills, raw executable quotes, costs and corporate-action handling",
+    "primary_comparison": {
+      "arms": [
+        "buffered_momentum",
+        "production_common_calendar"
+      ],
+      "method": "paired 20-trading-day block bootstrap mean net-return difference, 95% CI",
+      "verified_forward_trading_days": 252
+    },
+    "secondary_comparison": "006208 buy-and-hold from the same initial cash and future executable quotes",
+    "unverified_fills_allow_performance_claims": false
+  },
+  "targets": {
+    "006208_buy_hold": {
+      "006208": 1.0
+    },
+    "buffered_momentum": {
+      "1303": 0.125,
+      "2301": 0.125,
+      "2395": 0.125,
+      "2883": 0.125,
+      "2887": 0.125,
+      "3008": 0.125,
+      "3443": 0.125
+    },
+    "production_common_calendar": {
+      "1301": 0.125,
+      "1303": 0.125,
+      "2301": 0.125,
+      "2357": 0.125,
+      "2395": 0.125,
+      "3008": 0.125,
+      "3017": 0.125
+    }
+  },
+  "blocked_reasons": [],
+  "parent_isolation": {
+    "formal_database_attempts": 0
+  },
+  "worker_isolation": {
+    "external_network_attempts": 0,
+    "formal_database_attempts": 0
+  },
+  "replay_status": "replay_targets_match",
+  "execution_status": "pending_future_open_quotes",
+  "fills": [],
+  "performance": null,
+  "notes": [
+    "All three arms start in cash; historical app holdings and return paths were discarded.",
+    "ETF quote calendar is not a complete official exchange holiday calendar.",
+    "No broker submission, no real journal reads/writes, no market refresh.",
+    "Future executable quotes, costs and corporate actions still require a separate verified fills engine."
+  ]
+}

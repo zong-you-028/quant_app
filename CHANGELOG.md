@@ -2,6 +2,8 @@
 
 ## 2026-10-03
 
+- Added retrospective end-to-end prefix/future-contamination checks, fixed cost/execution/source-delay stresses, year-concentration diagnostics and an explicitly common-calendar original-rule baseline. Results remain retrospective and do not rule out overfitting; active app rules were not changed.
+- Added an isolated prospective signal archive with source/config fingerprints, real timestamps, public snapshot hashes, append-only records and visible stale/revision/gap states. It does not submit orders, backfill fills or claim realized paper-trading returns. Documented Taiwan paper-trading options and a frozen evaluation protocol.
 - Added read-only journal reconciliation showing the currently executable model portfolio, kept/missing/outside stocks and separate pending targets. Eight model slots remain fixed; the top-16 buffer never creates a sixteen-stock portfolio. Early purchases and unheld upcoming removals are identified to avoid buy/sell churn.
 - Rechecks refresh journal positions without rerunning the model; journal refreshes update the comparison and market updates invalidate it. Missing execution metadata, stale dates and journal errors never produce live action lists. Candidate labels now explicitly describe model-list changes.
 - Verified reconciliation with 149 regression tests and 18 desktop/mobile checks on isolated public market data and synthetic positions; real journal records stayed untouched. Return values exactly matched the prior execution engine on the same snapshot.

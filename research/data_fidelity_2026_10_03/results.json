@@ -1,0 +1,62 @@
+{
+  "seed_sha256": "e7a542e10d1c9ba4958fa7251344e59a8bcf17f7410ded7465e713f43167faa9",
+  "benchmark_rows": 2711,
+  "stock_2330_rows": 2863,
+  "stock_dates_without_benchmark_quote": 152,
+  "stock_dates_without_benchmark_by_year": {
+    "2015": 30,
+    "2016": 78,
+    "2017": 37,
+    "2018": 7
+  },
+  "latest_stock_date_without_benchmark_quote": "2018-04-12",
+  "official_source": "https://www.twse.com.tw/exchangeReport/STOCK_DAY",
+  "official_month_checks": [
+    {
+      "symbol": "006208",
+      "month": "20150101",
+      "official_sessions": 20,
+      "rows_without_cached_quote": 2,
+      "no_trade_no_close_rows": 2,
+      "missing_dates": [
+        "2015-01-15",
+        "2015-01-26"
+      ],
+      "missing_traded_dates": [],
+      "response_sha256": "a4defca2f6b70990729bdc074d7f5be4ea268ffa6e57da9b557a3661a14afe83"
+    },
+    {
+      "symbol": "006208",
+      "month": "20160101",
+      "official_sessions": 21,
+      "rows_without_cached_quote": 3,
+      "no_trade_no_close_rows": 3,
+      "missing_dates": [
+        "2016-01-04",
+        "2016-01-22",
+        "2016-01-27"
+      ],
+      "missing_traded_dates": [],
+      "response_sha256": "477f9098710dc4577a95beb8cee3c5f26f70e9c9886d3ec86b9a2f1a06d655a4"
+    },
+    {
+      "symbol": "2330",
+      "month": "20160101",
+      "official_sessions": 21,
+      "rows_without_cached_quote": 0,
+      "no_trade_no_close_rows": 0,
+      "missing_dates": [],
+      "missing_traded_dates": [],
+      "response_sha256": "8542b5fbb7dc18fe66f08b963db4986959ee89987fde59cfc025b3c4b81e1591"
+    }
+  ],
+  "formal_database_connections": 0,
+  "conclusion": "Sample missing ETF dates are official no-trade/no-close sessions; an ETF quote calendar is not a complete exchange-session calendar.",
+  "limitations": [
+    "Only three monthly responses checked; not a full historical-calendar audit.",
+    "Some historical Saturdays were trading sessions; weekend dates alone do not establish bad data.",
+    "App buffered model uses ETF quote dates; legacy production uses stock-union dates.",
+    "The fair-comparison baseline must explicitly use the same ETF quote calendar.",
+    "Corporate-action, price-adjustment, universe-membership and source publication-time issues remain unverified."
+  ]
+}

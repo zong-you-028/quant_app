@@ -1,0 +1,8 @@
+{
+  "pytest_exit_code": 0,
+  "elapsed_seconds": 26.95,
+  "formal_database_attempts": 0,
+  "isolated_connections": 520,
+  "isolated_database_count": 25,
+  "guard_includes_sqlite_file_uri": true
+}
