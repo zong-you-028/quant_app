@@ -1,6 +1,6 @@
 # Deploy to Render
 
-**Version update date:** 2026-08-30
+**Version update date:** 2026-10-03
 
 This project is ready to run as a Render web service. Trading-journal data is
 stored in Neon PostgreSQL; the market-data cache remains in local SQLite.
@@ -19,6 +19,15 @@ stored in Neon PostgreSQL; the market-data cache remains in local SQLite.
 Journal entries survive Render restarts in Neon. The Docker image includes a
 journal-free market/name seed, so a fresh Render instance starts from the same
 real-data baseline as local runs and then applies daily market updates.
+The current seed includes public TWSE/FinMind market rows and SOX through
+2026-10-02, with no journal records. SOX is also initialized for custom
+`APP_DATA_DIR` locations; the tested yfinance dependency is included.
+
+Startup and manual updates share one progress display and update lock. Batches
+have a 90-second request budget, preserve completed rows, and expose pending
+symbols for a later retry. Upstream failures remain visible; requests are not
+repeated separately for journal holdings. Request budgets are checked between
+calls, so parsing, commits and SOX downloads can extend total elapsed time.
 
 ## Existing local data
 

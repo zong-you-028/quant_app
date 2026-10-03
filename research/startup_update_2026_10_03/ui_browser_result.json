@@ -1,0 +1,30 @@
+{
+  "checks": [
+    "fresh_seed_startup_success_without_external_download",
+    "fresh_journal_rows_remain_zero",
+    "shared_progress_visible_on_stock_tab",
+    "analysis_disabled_during_update",
+    "source_failure_visible",
+    "mobile_retry_reachable",
+    "retry_restores_success",
+    "partial_journal_rows_remain_zero"
+  ],
+  "journal_isolated": true,
+  "external_downloads_forbidden": true,
+  "fresh_result": "低換手多視窗模型\n上期模型名單仍在前 16 名優先保留，再以中長期動能補足 8 檔。\n驗證狀態：歷史跨排程檢驗通過・過擬合未排除・待前瞻驗證\n資料已達更新目標 · 資料 2026-10-02 / 目標 2026-10-02 已達目標覆蓋率 100% 006208 2026-10-02 · 費半 2026-10-02 · 外資持股最舊日期 2026-10-02\n資料更新完成；請重新分析個股或計算輪動名單。 更新 0 · 已達目標 51 · 未達 0 · 失敗 0 · 待續抓 0 · 耗時 0 秒\n分析這檔\n尚未分析\n請重新分析低換手多視窗模型的個股適配。\n重新分析後顯示模型排名與閘門判定。\n最近資料收盤價\n--\n--\n--\n分析後顯示近 5 日收盤曲線\n分析後顯示近 6 個月走勢\n輪動排名\n60日歷史報酬\n近60日波動\n--\n--\n--\n--\n分析後顯示技術面出場雷達。",
+  "fresh_journal_rows": {
+    "trades": 0,
+    "cash_movements": 0,
+    "asset_history": 0,
+    "dca_plans": 0,
+    "corporate_actions": 0
+  },
+  "partial_journal_rows": {
+    "trades": 0,
+    "cash_movements": 0,
+    "asset_history": 0,
+    "dca_plans": 0,
+    "corporate_actions": 0
+  },
+  "status": "passed"
+}

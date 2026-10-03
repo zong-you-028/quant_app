@@ -918,6 +918,7 @@ def _build_app(page: ft.Page, on_logout=None):
     compute_state = {"busy": False}
     model_overview = ft.Container(content=make_model_status_card({"score_mode": ACTIVE_MODEL_ID}))
     compute_status = ft.Text("使用低換手多視窗模型，分析個股或計算輪動名單。", size=11, color="#455A64")
+    update_progress = ft.ProgressBar(visible=False, value=0)  # 所有分頁共用的更新進度
     symbol_field = ft.TextField(
         label="股票代號", value="2330", expand=True,
         text_size=16, dense=True,
@@ -1298,26 +1299,68 @@ def _build_app(page: ft.Page, on_logout=None):
                    if t["status"] == "open"])
         return list(dict.fromkeys(s for s in syms if s))
 
-    async def on_update(e):
+    async def run_daily_update(startup=False):
         if compute_state["busy"]:
             return
-        set_computing(True, "正在更新每日資料…")
+        set_computing(True, "啟動後檢查最新資料…" if startup else "正在更新每日資料…")
         invalidate_results("資料更新中，完成後請重新計算目前模型。")
         _set_button_label(update_btn, "更新中…")
-        scan_progress.visible = True
-        scan_msg.value = "更新每日資料中(抓取最新收盤；未完成標的會自動補抓，首次較久)..."
+        update_progress.visible = True
+        update_progress.value = 0
+        scan_msg.value = "只補落後行情及外資持股，已完成資料會保留。"
         scan_msg.color = getattr(C, "GREY_700", "#616161")
         page.update()
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        events = asyncio.Queue()
+        phase = [0, 0, "", "準備更新清單"]
+        final_label = "更新每日資料"
+
+        def report(done, total, symbol, message):
+            # Pipeline callbacks run on a worker; UI mutations stay on this loop.
+            message = {"updated": "已更新", "current": "已達目標", "stale": "仍未達目標",
+                       "failed": "更新失敗"}.get(message, message)
+            loop.call_soon_threadsafe(events.put_nowait, (done, total, symbol, message))
+
+        async def paint_progress():
+            while True:
+                try:
+                    phase[:] = await asyncio.wait_for(events.get(), timeout=0.5)
+                    while not events.empty():
+                        phase[:] = events.get_nowait()
+                except asyncio.TimeoutError:
+                    pass
+                done, total, symbol, message = phase
+                elapsed = int(loop.time() - started)
+                checked = f"已檢查 {done}/{total} 檔 · " if total else ""
+                compute_status.value = f"{checked}{symbol} {message} · 已用 {elapsed} 秒"
+                update_progress.value = min(done / total, 1) if total else None
+                page.update()
+                await asyncio.sleep(0.2)
+
+        painter = asyncio.create_task(paint_progress())
         try:
-            # 手動按 -> 略過時間節流,但仍只重抓「落後」的標的
+            targets = await asyncio.to_thread(_update_targets)
             res = await asyncio.to_thread(
-                update_symbols, _update_targets(), False, True)
-            try:                                   # 順便刷新費半市場燈
-                from core import market_regime
-                await asyncio.to_thread(market_regime.refresh_sox)
-            except Exception:
-                pass
+                update_symbols, targets, ignore_throttle=not startup,
+                time_budget_seconds=90, max_attempts=1 if startup else 2,
+                on_start=report, progress=report)
+            sox_error = ""
+            if not res.get("busy") and not res.get("time_budget_reached"):
+                report(len(targets), len(targets), "SOX", "更新費半市場資料")
+                try:
+                    from core import market_regime
+                    sox = await asyncio.to_thread(market_regime.refresh_sox, raise_errors=True)
+                    if sox is None or sox.empty:
+                        raise RuntimeError("沒有可用費半資料")
+                except Exception as ex:
+                    sox_error = f"費半更新失敗：{str(ex)[:200]}"
+            elif res.get("time_budget_reached"):
+                sox_error = "本批時間已到，費半待下次檢查。"
             scan_msg.value = format_update_status(res)
+            if res.get("pending") and not res.get("busy"):
+                scan_msg.value += "\n已完成資料已保存，按「繼續更新未完成資料」接續。"
+                final_label = "繼續更新未完成資料"
             if res.get("failed"):
                 failed = "、".join(res.get("failed_symbols", [])[:6])
                 first_error = next(iter((res.get("errors") or {}).values()), "")
@@ -1325,54 +1368,61 @@ def _build_app(page: ft.Page, on_logout=None):
                 if first_error:
                     scan_msg.value += f"\n原因:{first_error[:240]}"
                 scan_msg.color = "#B71C1C"
-            else:
-                scan_msg.color = "#B26A00" if res.get("stale") else "#2E7D32"
-            refresh_journal()       # 庫存現價/損益/停損停利警示一起刷新
-            invalidate_results("資料更新完成，請重新計算目前模型的輪動名單。")
-            refresh_model_overview()
-            if res.get("stale") or res.get("failed"):
+            if sox_error:
+                scan_msg.value += f"\n{sox_error}"
+            if final_label == "更新每日資料" and (res.get("stale") or res.get("failed") or sox_error):
+                final_label = "重試未完成資料"
+            report(len(targets), len(targets), "", "檢查更新後資料時效")
+            quality = await asyncio.to_thread(model_data_quality)
+            report(len(targets), len(targets), "", "讀快取刷新帳本市值")
+            snapshot = await asyncio.to_thread(load_journal_view)
+            painter.cancel()
+            await asyncio.gather(painter, return_exceptions=True)
+            refresh_journal(snapshot)  # UI mutations stay on the event loop
+            invalidate_results("本批更新結束，請依資料時效重新計算目前模型的輪動名單。")
+            refresh_model_overview({"data_quality": quality})
+            incomplete = (res.get("stale") or res.get("failed") or res.get("pending")
+                          or sox_error or quality.get("stale"))
+            scan_msg.color = "#B71C1C" if res.get("failed") or sox_error else "#B26A00" if incomplete or res.get("busy") else "#2E7D32"
+            if res.get("busy"):
+                compute_status.value = "另一個畫面正在更新；請稍後檢查資料日期。"
+                compute_status.color = "#B26A00"
+            elif incomplete:
                 compute_status.value = "仍有資料未達更新目標；計算結果僅供歷史檢視。"
                 compute_status.color = "#B26A00"
             else:
                 compute_status.value = "資料更新完成；請重新分析個股或計算輪動名單。"
+                compute_status.color = "#2E7D32"
+            if not res.get("busy"):
+                compute_status.value += (f"\n更新 {res.get('updated', 0)} · 已達目標 {res.get('current', 0)}"
+                                         f" · 未達 {res.get('stale', 0)} · 失敗 {res.get('failed', 0)}"
+                                         f" · 待續抓 {res.get('pending', 0)} · 耗時 {int(loop.time() - started)} 秒")
+                first_error = next(iter((res.get("errors") or {}).values()), "")
+                if sox_error or first_error:
+                    compute_status.value += f"\n{sox_error or first_error[:180]}"
         except Exception as ex:
             scan_msg.value = f"更新失敗:{ex}"
             scan_msg.color = "#B71C1C"
             compute_status.value = "資料更新失敗，可重新更新。"
             compute_status.color = "#B71C1C"
+            final_label = "重試未完成資料"
         finally:
+            painter.cancel()
+            await asyncio.gather(painter, return_exceptions=True)
             compute_state["busy"] = False
             run_btn.disabled = scan_btn.disabled = update_btn.disabled = False
-            _set_button_label(update_btn, "更新每日資料")
-            scan_progress.visible = False
+            _set_button_label(update_btn, final_label)
+            update_progress.visible = False
             page.update()
+
+    async def on_update(e):
+        await run_daily_update()
 
     update_btn.on_click = on_update
 
     async def _auto_update():
-        """啟動時背景增量更新一次(受 6 小時節流;不打擾操作)。"""
-        try:
-            quote_res = await asyncio.to_thread(journal.refresh_open_market_data)
-            res = await asyncio.to_thread(update_symbols, _update_targets())
-            try:                                   # 背景刷新費半市場燈
-                from core import market_regime
-                await asyncio.to_thread(market_regime.refresh_sox)
-            except Exception:
-                pass
-            refresh_journal()
-            if quote_res["symbols"]:
-                j_quote_status.value = (
-                    f"市值資料：更新 {quote_res['updated']} 檔、已最新 {quote_res['current']} 檔、"
-                    f"尚未到目標 {quote_res.get('stale', 0)} 檔 · 無法取得 {quote_res['failed']} 檔（以最近收盤計算）")
-            if not res.get("throttled"):
-                scan_msg.value = format_update_status(res)
-                scan_msg.color = "#B26A00" if res.get("stale") or res.get("failed") else "#2E7D32"
-            if not compute_state["busy"]:
-                invalidate_results("行情背景更新完成，請重新計算目前模型。")
-                refresh_model_overview()
-            page.update()
-        except Exception:
-            pass
+        """每次啟動只執行一批；已完成標的不重抓，不另抓一次庫存。"""
+        await run_daily_update(startup=True)
 
     # 續抱:本期又選到已持有的標的 -> 更新輪替日 + 依現價重算停損/停利(月度移動停損)
     def require_current_rotation():
@@ -1444,16 +1494,23 @@ def _build_app(page: ft.Page, on_logout=None):
     j_state = {"editing": None, "editing_snapshot": None,
                "records_expanded": False, "history_expanded": False}
 
-    def refresh_journal():
+    def load_journal_view():
+        """Fetch remote journal reads off the UI loop during market updates."""
+        return {"trades": journal.list_trades(), "positions": journal.positions(),
+                "cash": journal.cash_balance(), "summary": journal.summary(),
+                "history": journal.list_asset_history(), "plans": journal.list_dca_plans()}
+
+    def refresh_journal(snapshot=None):
         """重建紀錄清單 + 彙總 + 總資產快照 + 定期定額清單(讀 DB),由呼叫端 page.update()。"""
-        trades = journal.list_trades()
-        current_positions = journal.positions()
+        snapshot = snapshot if snapshot is not None else load_journal_view()
+        trades = snapshot["trades"]
+        current_positions = snapshot["positions"]
         positions_panel.controls = (
             make_position_rows(current_positions) if current_positions else
             [ft.Text("目前沒有持倉", size=12,
                      color=getattr(C, "GREY", "#9E9E9E"))]
         )
-        j_cash.value = f"{journal.cash_balance():g}"
+        j_cash.value = f"{snapshot['cash']:g}"
         records_label = ("收合" if j_state["records_expanded"] else "展開")
         records_label += f"投資紀錄（{len(trades)} 筆）"
         j_records_btn.content = records_label
@@ -1488,9 +1545,9 @@ def _build_app(page: ft.Page, on_logout=None):
             j_panel.controls = [ft.Text(
                 "還沒有資產，輸入代號、持有數量與平均成本即可新增。",
                 size=12, color=getattr(C, "GREY", "#9E9E9E"))]
-        j_summary.value = make_summary_text(journal.summary())
+        j_summary.value = make_summary_text(snapshot["summary"])
         # 總資產快照清單 + 成長曲線(≥2 筆才畫圖)
-        hist = journal.list_asset_history()
+        hist = snapshot["history"]
         history_label = ("收合" if j_state["history_expanded"] else "展開")
         j_history_btn.content = f"{history_label}總資產紀錄（{len(hist)} 筆）"
         j_history_btn.visible = bool(hist)
@@ -1508,7 +1565,7 @@ def _build_app(page: ft.Page, on_logout=None):
         else:
             j_hist_chart.visible = False
         # 定期定額計畫清單
-        plans = journal.list_dca_plans()
+        plans = snapshot["plans"]
         dca_panel.controls = (make_dca_rows(plans, on_toggle_dca, on_delete_dca) if plans else
                               [ft.Text("尚無定期定額計畫。設定後按「立即更新」自動補買。",
                                        size=12, color=getattr(C, "GREY", "#9E9E9E"))])
@@ -1788,7 +1845,7 @@ def _build_app(page: ft.Page, on_logout=None):
     usage_guide = ft.ExpansionTile(
         title=ft.Text("使用流程", size=13, weight=ft.FontWeight.BOLD),
         controls=[ft.Container(content=ft.Column([
-            ft.Text("1. 按「更新每日資料」，確認資料已達更新目標。未達目標時，名單僅供歷史檢視。", size=12),
+            ft.Text("1. 啟動會自動檢查最新資料，頂部顯示進度。也可按「更新每日資料」；若有待續抓或失敗，按更新按鈕接續，確認資料已達目標後再計算。", size=12),
             ft.Text("2. 按「計算輪動名單」，查看成本後績效、排名及閘門結果。", size=12),
             ft.Text("3. 核對選股依據日、目標成交日與候選名單。名單並非已成交持倉；空缺名額保留現金。", size=12),
             ft.Text("4. 實際成交後，到「投資紀錄」如實記錄交易的成交價與股數。", size=12),
@@ -1882,13 +1939,13 @@ def _build_app(page: ft.Page, on_logout=None):
             ),
         )
         page.add(ft.Column([
-            model_overview, compute_status, tabs,
+            model_overview, compute_status, update_progress, tabs,
         ], spacing=8, expand=True))
     except Exception:
         # 舊版相容:無分頁元件時,退回單欄捲動版面
         page.scroll = _scroll
         page.add(ft.Column(
-            [model_overview, compute_status,
+            [model_overview, compute_status, update_progress,
              ft.Text("個股分析", size=16, weight=ft.FontWeight.BOLD), tab_stock,
              ft.Divider(),
              ft.Text("策略輪動", size=16, weight=ft.FontWeight.BOLD), tab_holdings,
@@ -1901,8 +1958,10 @@ def _build_app(page: ft.Page, on_logout=None):
     if hasattr(page, "run_task") and not offline_preview:
         try:
             page.run_task(_auto_update)
-        except Exception:
-            pass
+        except Exception as ex:
+            compute_status.value = f"無法啟動自動更新：{ex}；可按「更新每日資料」重試。"
+            compute_status.color = "#B71C1C"
+            page.update()
 
 
 # ---------------------------------------------------------------------------

@@ -23,12 +23,38 @@ import config
 
 _INITIALIZED_PATHS = set()
 _INIT_LOCK = threading.Lock()
-_MARKET_SEED_VERSION = "2026-09-01-v2"
+_MARKET_SEED_VERSION = "2026-10-02-v3"
 _FINMIND_BLOCKED_UNTIL = None
 _TWSE_SNAPSHOT_CACHE = None
+_UPDATE_LOCK = threading.Lock()
+_UPDATE_CONTEXT = threading.local()
 
 
-class FinMindBlockedError(RuntimeError):
+class UpdateBudgetExceeded(RuntimeError):
+    """The batch may resume later without discarding committed market rows."""
+
+
+class SourceUnavailableError(RuntimeError):
+    """Immediate retries cannot repair a rejected upstream request."""
+
+
+def _request_timeout(default=30):
+    deadline = getattr(_UPDATE_CONTEXT, "deadline", None)
+    if deadline is None:
+        return default
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise UpdateBudgetExceeded("本批更新時間已到，未完成資料可繼續更新")
+    return min(8., remaining)
+
+
+def _update_phase(symbol, message):
+    callback = getattr(_UPDATE_CONTEXT, "phase", None)
+    if callback:
+        callback(symbol, message)
+
+
+class FinMindBlockedError(SourceUnavailableError):
     """FinMind rejected this Render egress IP; callers may use TWSE fallback."""
 
 
@@ -399,14 +425,14 @@ def _finmind_get(dataset: str, data_id: str, start: str) -> pd.DataFrame:
     if config.FINMIND_TOKEN:
         headers["Authorization"] = f"Bearer {config.FINMIND_TOKEN}"
     last_error = None
-    for attempt in range(3):
+    for attempt in range(1 if getattr(_UPDATE_CONTEXT, "deadline", None) is not None else 3):
         try:
             resp = requests.get(
-                config.FINMIND_URL, params=params, headers=headers, timeout=30
+                config.FINMIND_URL, params=params, headers=headers, timeout=_request_timeout()
             )
         except requests.RequestException as ex:
             last_error = ex
-            if attempt < 2:
+            if attempt < 2 and getattr(_UPDATE_CONTEXT, "deadline", None) is None:
                 time.sleep(1.5 * (attempt + 1))
                 continue
             break
@@ -418,24 +444,27 @@ def _finmind_get(dataset: str, data_id: str, start: str) -> pd.DataFrame:
         if 400 <= resp.status_code < 500:
             # Invalid credentials, quota or IP ban will not recover by retrying.
             msg = js.get("msg") or resp.reason or "client error"
-            if (resp.status_code == 402
-                    or (resp.status_code == 403 and "ip banned" in str(msg).lower())):
+            if resp.status_code in (401, 402, 403, 429):
                 # Quota resets hourly; an IP ban is also temporary.
                 _FINMIND_BLOCKED_UNTIL = _dt.datetime.now() + _dt.timedelta(hours=1)
                 raise FinMindBlockedError(
                     f"FinMind {dataset}/{data_id} HTTP {resp.status_code}: {msg}"
                 )
-            raise RuntimeError(f"FinMind {dataset}/{data_id} HTTP {resp.status_code}: {msg}")
+            raise SourceUnavailableError(f"FinMind {dataset}/{data_id} HTTP {resp.status_code}: {msg}")
         try:
             resp.raise_for_status()
         except requests.RequestException as ex:
             last_error = ex
-            if attempt < 2:
+            if attempt < 2 and getattr(_UPDATE_CONTEXT, "deadline", None) is None:
                 time.sleep(1.5 * (attempt + 1))
                 continue
             break
         if js.get("status") != 200:
-            raise RuntimeError(f"FinMind {dataset} 失敗:{js.get('msg')}")
+            code = js.get("status")
+            if code in (401, 402, 403, 429):
+                _FINMIND_BLOCKED_UNTIL = _dt.datetime.now() + _dt.timedelta(hours=1)
+                raise FinMindBlockedError(f"FinMind {dataset} 狀態 {code}: {js.get('msg')}")
+            raise SourceUnavailableError(f"FinMind {dataset} 失敗:{js.get('msg')}")
         return pd.DataFrame(js.get("data", []))
     raise RuntimeError(f"FinMind {dataset}/{data_id} 更新失敗: {last_error}")
 
@@ -448,12 +477,13 @@ def _twse_recent_prices(symbol: str, asof=None, start=None) -> pd.DataFrame:
     months = pd.date_range(first.replace(day=1), end.replace(day=1), freq="MS")[::-1]
     rows = []
     for month in months:
+        _update_phase(symbol, f"補抓 {month:%Y-%m} 行情")
         resp = requests.get(
             "https://www.twse.com.tw/exchangeReport/STOCK_DAY",
             params={"response": "json", "date": month.strftime("%Y%m01"),
                     "stockNo": symbol},
             headers={"User-Agent": "Mozilla/5.0"},
-            timeout=30,
+            timeout=_request_timeout(),
         )
         resp.raise_for_status()
         js = resp.json()
@@ -501,7 +531,7 @@ def _twse_latest_snapshot() -> pd.DataFrame:
         return _TWSE_SNAPSHOT_CACHE[1]
     resp = requests.get(
         "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
-        headers={"User-Agent": "Mozilla/5.0"}, timeout=30,
+        headers={"User-Agent": "Mozilla/5.0"}, timeout=_request_timeout(),
     )
     resp.raise_for_status()
     rows = []
@@ -531,7 +561,7 @@ def _twse_latest_snapshot() -> pd.DataFrame:
 
 def _merge_twse_prices(symbol: str, fresh: pd.DataFrame) -> None:
     """Merge supplied TWSE rows without downloading or replacing old history."""
-    init_db()
+    ensure_db()
     conn = get_conn()
     old = pd.read_sql_query(
         "SELECT symbol,date,open,high,low,close,volume FROM ohlcv WHERE symbol = ?",
@@ -580,10 +610,17 @@ def fetch_twse_latest_data(symbol: str) -> None:
 def _refresh_market_data(symbol: str) -> None:
     """Use TWSE for routine refreshes; FinMind is reserved for missing history."""
     if has_symbol(symbol):
-        fetch_twse_latest_data(symbol)
+        latest = (last_ohlcv_date(symbol)
+                  if getattr(_UPDATE_CONTEXT, "deadline", None) is not None else None)
+        # A chip-only retry must not re-download or rewrite fresh prices.
+        if (getattr(_UPDATE_CONTEXT, "force", False) or latest is None
+                or latest.normalize() < _last_trading_day()):
+            _update_phase(symbol, "更新行情")
+            fetch_twse_latest_data(symbol)
     else:
         fetch_real_data(symbol)
     if chip_needs_update(symbol):
+        _update_phase(symbol, "更新外資持股")
         fetch_chip_data(symbol)
 
 
@@ -893,7 +930,41 @@ def update_data(symbol: str, force: bool = False) -> str:
 
 
 def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
-                   throttle_hours: float = 6.0, progress=None) -> dict:
+                   throttle_hours: float = 6.0, progress=None,
+                   time_budget_seconds=None, max_attempts=3, on_start=None) -> dict:
+    """One shared-cache update at a time, with resumable bounded UI batches.
+
+    Requests inside a bounded batch get at most eight seconds each. The budget
+    is checked between requests; parsing/committing a response may finish later.
+    Legacy callers retain their original retry policy when no budget is given.
+    """
+    symbols = list(dict.fromkeys(s.strip().upper() for s in symbols if s and s.strip()))
+    if time_budget_seconds is not None and time_budget_seconds <= 0:
+        raise ValueError("time budget must be positive")
+    if not 1 <= max_attempts <= 3:
+        raise ValueError("attempt count must be between one and three")
+    if not _UPDATE_LOCK.acquire(blocking=False):
+        return {"busy": True, "updated": 0, "current": 0, "stale": 0, "failed": 0,
+                "pending": len(set(symbols)), "throttled": False,
+                "errors": {}, "stale_chip_symbols": []}
+    started = time.monotonic()
+    previous = vars(_UPDATE_CONTEXT).copy()
+    try:
+        _UPDATE_CONTEXT.deadline = (started + time_budget_seconds
+                                    if time_budget_seconds is not None else None)
+        _UPDATE_CONTEXT.force = force
+        result = _update_symbols(symbols, force, ignore_throttle, throttle_hours,
+                                 progress, max_attempts, on_start)
+        result["elapsed_seconds"] = round(time.monotonic() - started, 1)
+        return result
+    finally:
+        vars(_UPDATE_CONTEXT).clear()
+        vars(_UPDATE_CONTEXT).update(previous)
+        _UPDATE_LOCK.release()
+
+
+def _update_symbols(symbols, force=False, ignore_throttle=False,
+                    throttle_hours=6., progress=None, max_attempts=3, on_start=None):
     """
     批次更新每日資料(只刷新落後者)。
       force=True:每檔都強制重抓;ignore_throttle=True:略過整體時間節流(手動按鈕用)。
@@ -904,6 +975,8 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
     expected = _last_trading_day()
     syms = list(dict.fromkeys(s.strip().upper() for s in symbols if s and s.strip()))
     res = {"updated": 0, "current": 0, "stale": 0, "failed": 0,
+           "pending": 0, "pending_symbols": [], "time_budget_reached": False,
+           "nonretryable_symbols": [],
            "throttled": False, "asof": None, "latest_asof": None,
            "expected_asof": expected.strftime("%Y-%m-%d"),
            "failed_symbols": [], "stale_symbols": [], "errors": {},
@@ -925,7 +998,8 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
     initial_chip_dates = {}
     statuses = {}
     pending = syms
-    for attempt in range(3):
+    budget_reached = False
+    for attempt in range(max_attempts):
         if not pending:
             break
         if attempt:
@@ -939,12 +1013,17 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
         retry = []
         for i, symbol in enumerate(pending):
             refresh_attempted = False
+            if on_start:
+                checked = i if attempt == 0 else len(syms)
+                _UPDATE_CONTEXT.phase = lambda s, label: on_start(checked, len(syms), s, label)
+                on_start(checked, len(syms), symbol, "檢查資料" if attempt == 0 else "補抓未完成資料")
             try:
                 if symbol not in initial_dates:
                     initial_dates[symbol] = last_ohlcv_date(symbol)
                     initial_chip_dates[symbol] = last_chip_date(symbol) if _chip_required(symbol) else None
                 before = initial_dates[symbol]
                 if not res["throttled"] and (force or needs_update(symbol)):
+                    _request_timeout()
                     refresh_attempted = True
                     _refresh_market_data(symbol)
                 after = last_ohlcv_date(symbol)
@@ -960,23 +1039,39 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
                     status = "updated"
                 else:
                     status = "current"
+            except UpdateBudgetExceeded:
+                budget_reached = True
+                res["time_budget_reached"] = True
+                for remaining in pending[i:]:
+                    statuses[remaining] = "pending"
+                break
             except Exception as ex:
                 status = "failed"
                 res["errors"][symbol] = str(ex)
+                if isinstance(ex, SourceUnavailableError):
+                    res["nonretryable_symbols"].append(symbol)
                 try:
                     after = last_ohlcv_date(symbol)
                     res["data_dates"][symbol] = after.strftime("%Y-%m-%d") if after is not None else None
                 except Exception:
                     res["data_dates"][symbol] = None
             statuses[symbol] = status
-            if refresh_attempted and status in ("failed", "stale"):
+            if (refresh_attempted and status in ("failed", "stale")
+                    and symbol not in res["nonretryable_symbols"]):
                 retry.append(symbol)
             if progress:
                 progress(i + 1 if attempt == 0 else len(syms), len(syms), symbol, status)
         pending = retry
+        if budget_reached:
+            break
+    for symbol in syms:
+        if statuses.get(symbol) == "pending" or symbol not in statuses:
+            statuses[symbol] = "pending"
+            date = last_ohlcv_date(symbol)
+            res["data_dates"][symbol] = date.strftime("%Y-%m-%d") if date is not None else None
     for symbol, status in statuses.items():
         res[status] += 1
-        if status in ("failed", "stale"):
+        if status in ("failed", "stale", "pending"):
             res[f"{status}_symbols"].append(symbol)
         if _chip_required(symbol):
             try:
@@ -992,7 +1087,7 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
     dates = [d for d in res["data_dates"].values() if d]
     res["asof"] = min(dates) if dates and len(dates) == len(syms) else None
     res["latest_asof"] = max(dates) if dates else None
-    if syms and not res["failed"] and not res["stale"] and not res["throttled"]:
+    if syms and not res["failed"] and not res["stale"] and not res["pending"] and not res["throttled"]:
         _meta_set("last_refresh", _dt.datetime.now().isoformat())
         _meta_set("last_refresh_target", res["expected_asof"])
     return res
@@ -1000,6 +1095,8 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
 
 def format_update_status(result: dict) -> str:
     """Report actual stored dates, never the requested date as successful."""
+    if result.get("busy"):
+        return "另一個畫面正在更新同一份行情，請稍後重新檢查；未啟動重複下載。"
     oldest = result.get("asof") or "部分缺資料"
     newest = result.get("latest_asof") or "無"
     recovery = f" · 自動補抓完成 {result['recovered']} 檔" if result.get("recovered") else ""
@@ -1007,7 +1104,7 @@ def format_update_status(result: dict) -> str:
         f"資料日 {oldest}～{newest} · 更新 {result['updated']} 檔 · "
         f"已達目標 {result['current']}{recovery} · 尚未到目標 {result.get('stale', 0)} · "
         f"籌碼過期 {len(result.get('stale_chip_symbols', []))} · "
-        f"失敗 {result['failed']}（目標 {result.get('expected_asof', '未知')}，"
+        f"失敗 {result['failed']} · 待續抓 {result.get('pending', 0)}（目標 {result.get('expected_asof', '未知')}，"
         "僅排除週末；延遲來源或休市可能尚無新資料）"
     )
 

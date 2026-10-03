@@ -7,6 +7,7 @@ market_regime.py - 費半(SOX)市場燈:策略切換門檻
 資料用 yfinance 抓 ^SOX,快取 data/sox.csv,每日更新時刷新。
 """
 import os
+import tempfile
 
 import pandas as pd
 
@@ -15,33 +16,75 @@ import config
 SOX_CSV = os.path.join(config.DATA_DIR, "sox.csv")
 
 
-def refresh_sox(start="2014-06-01"):
-    """用 yfinance 抓 ^SOX 全歷史,覆寫快取 data/sox.csv;回傳收盤 Series。"""
+def _cached_sox(path=None):
+    """Read-only fallback; never recursively starts another download."""
     try:
+        frame = pd.read_csv(path or SOX_CSV, index_col=0)
+        frame.index = pd.to_datetime(frame.index)
+        series = pd.to_numeric(frame.iloc[:, 0], errors="coerce").rename("close").dropna().sort_index()
+        return series if not series.empty and series.gt(0).all() else None
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _write_sox(series):
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", dir=os.path.dirname(SOX_CSV),
+                                         delete=False, encoding="utf-8") as file:
+            temporary = file.name
+            series.to_csv(file)
+        os.replace(temporary, SOX_CSV)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.remove(temporary)
+
+
+def refresh_sox(start="2014-06-01", raise_errors=False):
+    """Incremental SOX refresh with a bounded request and atomic cache write."""
+    cached = _cached_sox()
+    try:
+        if cached is None:
+            # Custom APP_DATA_DIR/persistent volumes also get the public seed.
+            seed = _cached_sox(os.path.join(config.BASE_DIR, "data_seed", "sox.csv"))
+            if seed is not None:
+                _write_sox(seed)
+                cached = seed
+        from core.data_pipeline import _last_trading_day
+        if cached is not None and not cached.empty:
+            if cached.index.max() + pd.Timedelta(days=3) >= _last_trading_day():
+                return cached
+            start = (cached.index.max() - pd.Timedelta(days=5)).strftime("%Y-%m-%d")
         import yfinance as yf
         sym = getattr(config, "ROTATION_SOX_SYMBOL", "^SOX")
-        df = yf.download(sym, start=start, progress=False, auto_adjust=True)
+        df = yf.download(sym, start=start, progress=False, auto_adjust=True,
+                         threads=False, timeout=8)
         if df is None or df.empty:
-            return load_sox()
-        s = df["Close"].squeeze()
+            raise RuntimeError("費半來源未回傳新資料")
+        s = df["Close"]
+        if isinstance(s, pd.DataFrame):
+            s = s.iloc[:, 0]
         s.index = pd.to_datetime(s.index)
+        if s.index.tz is not None:
+            s.index = s.index.tz_localize(None)
         s = s.rename("close").dropna()
-        s.to_csv(SOX_CSV)
+        if s.empty or not s.gt(0).all():
+            raise RuntimeError("費半來源價格無效")
+        if cached is not None:
+            s = pd.concat([cached, s])
+            s = s[~s.index.duplicated(keep="last")].sort_index()
+        _write_sox(s)
         return s
     except Exception:
-        return load_sox()
+        if raise_errors:
+            raise
+        return cached
 
 
 def load_sox():
     """讀快取的 SOX 收盤;沒有則抓一次。失敗回 None。"""
-    if os.path.exists(SOX_CSV):
-        try:
-            s = pd.read_csv(SOX_CSV, index_col=0)
-            s.index = pd.to_datetime(s.index)
-            return s.iloc[:, 0].rename("close")
-        except Exception:
-            pass
-    return refresh_sox()
+    cached = _cached_sox()
+    return cached if cached is not None else refresh_sox()
 
 
 def sox_regime_series(index, ma=None, lag=None):

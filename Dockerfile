@@ -13,7 +13,7 @@ COPY . ./
 
 # Bootstrap Render with the same real market/name cache used locally.
 # The seed contains no journal tables or personal trading records.
-RUN mkdir -p data && python -c "import gzip, shutil; src=gzip.open('data_seed/market.db.gz','rb'); dst=open('data/market.db','wb'); shutil.copyfileobj(src,dst); src.close(); dst.close()"
+RUN mkdir -p data && python -c "import gzip, shutil; src=gzip.open('data_seed/market.db.gz','rb'); dst=open('data/market.db','wb'); shutil.copyfileobj(src,dst); src.close(); dst.close(); shutil.copyfile('data_seed/sox.csv','data/sox.csv')"
 
 # Render supplies port 10000 by default. Flet reads these on startup and
 # exposes this as a browser-based WebSocket application.

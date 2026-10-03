@@ -177,11 +177,11 @@ def test_single_active_model_update_invalidation_and_stale_callback_guard(monkey
     add.on_click(None)
     assert all(kind != "buy" for kind, _ in seen)
     from core import market_regime
-    monkeypatch.setattr(market_regime, "refresh_sox", lambda: None)
-    monkeypatch.setattr(app, "update_symbols", lambda *args: {"stale": 1, "failed": 0})
+    monkeypatch.setattr(market_regime, "refresh_sox", lambda **kwargs: pd.Series([100.]))
+    monkeypatch.setattr(app, "update_symbols", lambda *args, **kwargs: {"stale": 1, "failed": 0})
     monkeypatch.setattr(app, "format_update_status", lambda result: "尚未達更新目標")
     asyncio.run(button(page.controls, "更新每日資料").on_click(None))
-    assert "資料更新完成，請重新計算目前模型的輪動名單。" in texts(page.controls)
+    assert "本批更新結束，請依資料時效重新計算目前模型的輪動名單。" in texts(page.controls)
     assert not any(getattr(item, "content", None) == "加入庫存" for item in walk(page.controls))
     add.on_click(None)
     assert all(kind != "buy" for kind, _ in seen)
@@ -235,6 +235,67 @@ def test_usage_guide_explains_actual_trade_and_inventory_bookkeeping(monkeypatch
     assert "目標成交日" in content and "不會自動下單" in content
     assert "不扣現金" in content and "重複記帳" in content
     assert "不代表市場已成交" in content
+
+
+def test_startup_update_shared_progress_no_duplicate_holdings_fetch(monkeypatch):
+    import time
+    from core import market_regime
+    scheduled, calls, frames = [], [], []
+    monkeypatch.delenv("QUANT_APP_OFFLINE", raising=False)
+    monkeypatch.setattr(FakePage, "run_task", lambda page, task: scheduled.append(task), raising=False)
+    monkeypatch.setattr(FakePage, "update", lambda page: frames.append(texts(page.controls)))
+    page = build_app(monkeypatch)
+    monkeypatch.setattr(app.journal, "refresh_open_market_data", lambda: pytest.fail("must not download holdings twice"))
+    monkeypatch.setattr(market_regime, "refresh_sox", lambda **kwargs: pd.Series([100.]))
+
+    def update(symbols, **kwargs):
+        calls.append((symbols, kwargs))
+        assert button(page.controls, "更新中…").disabled
+        assert button(page.controls, "分析這檔").disabled
+        kwargs["on_start"](0, 2, "2330", "更新行情")
+        time.sleep(.1)
+        return {"pending": 1, "time_budget_reached": True, "failed": 0, "stale": 0}
+
+    monkeypatch.setattr(app, "update_symbols", update)
+    monkeypatch.setattr(app, "format_update_status", lambda r: "待續抓 1")
+
+    async def run():
+        auto = asyncio.create_task(scheduled[0]())
+        await asyncio.sleep(.04)
+        await button(page.controls, "更新中…").on_click(None)  # racing manual request is ignored
+        await auto
+
+    asyncio.run(run())
+    assert len(calls) == 1 and calls[0][1]["max_attempts"] == 1
+    assert calls[0][1]["time_budget_seconds"] == 90
+    assert any("2330 更新行情" in frame for frame in frames)
+    assert not button(page.controls, "繼續更新未完成資料").disabled
+    assert "待續抓 1" in texts(page.controls) and "仍有資料未達更新目標" in texts(page.controls)
+    assert not page.controls[0].controls[2].visible  # shared progress above all tabs
+
+
+def test_sox_failure_is_visible_and_controls_recover(monkeypatch):
+    from core import market_regime
+    page = build_app(monkeypatch)
+    monkeypatch.setattr(app, "update_symbols", lambda *a, **kw: {"failed": 0, "stale": 0})
+    monkeypatch.setattr(app, "format_update_status", lambda r: "行情已更新")
+    monkeypatch.setattr(market_regime, "refresh_sox", lambda **kw: (_ for _ in ()).throw(RuntimeError("source timeout")))
+    asyncio.run(button(page.controls, "更新每日資料").on_click(None))
+    assert "費半更新失敗：source timeout" in texts(page.controls)
+    assert not button(page.controls, "重試未完成資料").disabled
+    assert not button(page.controls, "分析這檔").disabled
+
+
+def test_startup_failure_is_not_silenced(monkeypatch):
+    scheduled = []
+    monkeypatch.delenv("QUANT_APP_OFFLINE", raising=False)
+    monkeypatch.setattr(FakePage, "run_task", lambda p, task: scheduled.append(task), raising=False)
+    page = build_app(monkeypatch)
+    monkeypatch.setattr(app, "update_symbols", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("cannot reach source")))
+    asyncio.run(scheduled[0]())
+    assert "cannot reach source" in texts(page.controls)
+    assert not button(page.controls, "重試未完成資料").disabled
+    assert not any(item.visible for item in walk(page.controls) if isinstance(item, ft.ProgressBar))
 
 
 @pytest.mark.parametrize("viewport_width", [390, 420])

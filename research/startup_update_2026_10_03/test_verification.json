@@ -1,0 +1,7 @@
+{
+  "pytest_exit_code": 0,
+  "elapsed_seconds": 7.63,
+  "formal_database_attempts": 0,
+  "isolated_connections": 516,
+  "isolated_database_count": 22
+}
