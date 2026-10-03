@@ -33,7 +33,8 @@ TABLES = {
 }
 SOURCE_FILES = ("config.py", "core/rotation.py", "core/strategy_models.py",
                 "core/execution.py", "core/chip_data.py", "core/market_regime.py",
-                "core/data_pipeline.py", "core/paper_validation.py")
+                "core/data_pipeline.py", "core/paper_validation.py",
+                "core/tpex_prices.py", "data_seed/universe_150.json")
 CONFIG_KEYS = ("ROTATION_MOM_DAYS", "ROTATION_SKIP_DAYS", "ROTATION_TOP_K",
                "ROTATION_EXECUTION_LAG", "ROTATION_REBAL_DAYS", "ROTATION_ABS_MOM",
                "ROTATION_ABS_THRESH", "ROTATION_DEFENSIVE", "ROTATION_DEFENSIVE_POOL_MULT",
@@ -41,7 +42,9 @@ CONFIG_KEYS = ("ROTATION_MOM_DAYS", "ROTATION_SKIP_DAYS", "ROTATION_TOP_K",
                "ROTATION_SOX_GATE", "ROTATION_SOX_MA", "ROTATION_SOX_LAG",
                "ROTATION_SOX_SYMBOL", "ROTATION_USE_UNIVERSE", "ROTATION_MIN_OBS",
                "COST_PER_TURNOVER", "BENCHMARK_SYMBOL", "UNIVERSE", "WATCHLIST",
-               "CA_JUMP_THRESHOLD", "DATA_SOURCE", "FALLBACK_TO_SYNTHETIC")
+               "CA_JUMP_THRESHOLD", "DATA_SOURCE", "FALLBACK_TO_SYNTHETIC",
+               "UNIVERSE_KIND", "UNIVERSE_ASOF", "UNIVERSE_MARKETS",
+               "UNIVERSE_LISTING_DATES", "UNIVERSE_PROVISIONAL")
 
 
 class ProtocolChanged(ValueError):
@@ -121,6 +124,15 @@ def frozen_identity():
                 "secondary_comparison": "006208 buy-and-hold from the same initial cash and future executable quotes",
                 "performance_conclusions_require": "verified future fills, raw executable quotes, costs and corporate-action handling",
                 "unverified_fills_allow_performance_claims": False},
+            "parallel_universe_comparison": {
+                "reference_archive": "data/paper_validation/forward_2026_10_03_v1",
+                "reference_protocol_hash": "5d2780bb00594ed1cfc65f79d6cd913725bf48d044958fe98041786d6113d66a",
+                "arms": "150 buffered_momentum versus frozen old50 buffered_momentum",
+                "verified_common_forward_trading_days": 252,
+                "method": "paired 20-trading-day block bootstrap mean net-return difference, 95% CI",
+                "start": "both start in cash; initial signals as of 2026-10-02; first future executable quotes only",
+                "gaps": "missing timely seals or unverified fills block performance conclusions; no retrospective signal reconstruction",
+            } if len(values["UNIVERSE"]) == 150 else None,
             "starting_state": {"cash": 1., "positions": {}, "currency": "TWD",
                                "notional_only": True},
             "recording": "latest available data date only; no retrospective signals or fills",

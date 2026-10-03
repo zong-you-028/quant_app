@@ -368,6 +368,15 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
     target_execution_date = (idx[target_execution_pos].strftime("%Y-%m-%d")
                              if target_execution_pos < len(idx) else None)
     quality_prices = dict(prices)
+    # Ranking warmup and quote freshness are different. A new listing with six
+    # current bars must not make every tradable position appear stale, while a
+    # genuinely absent or old cache still blocks recording actions.
+    for symbol in symbols:
+        if symbol not in quality_prices:
+            try:
+                quality_prices[symbol] = load_ohlcv(symbol)
+            except Exception:
+                pass
     if "benchmark_df" in locals() and benchmark_df is not None:
         quality_prices[benchmark_symbol] = benchmark_df
     quality = data_quality(symbols, prices=quality_prices)

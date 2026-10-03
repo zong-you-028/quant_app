@@ -1,0 +1,1140 @@
+# -*- coding: utf-8 -*-
+"""
+data_pipeline.py - 資料層
+職責:
+  1. SQLite 連線與建表(ohlcv 日頻、chip_weekly 週頻籌碼)
+  2. 特徵工程:MACD(DIF/DEA/OSC 及斜率/符號)、籌碼集中度特徵
+  3. 日週對齊:週頻籌碼 reindex 到日頻後 ffill()
+  4. seed_sample_data():無真實資料時產生合成資料,讓系統可立即執行
+"""
+import datetime as _dt
+import gzip
+import os
+import sqlite3
+import tempfile
+import threading
+import time
+import numpy as np
+import pandas as pd
+import requests
+
+import config
+
+
+_INITIALIZED_PATHS = set()
+_INIT_LOCK = threading.Lock()
+_MARKET_SEED_VERSION = "2026-10-02-v3"
+_FINMIND_BLOCKED_UNTIL = None
+_TWSE_SNAPSHOT_CACHE = None
+_UPDATE_LOCK = threading.Lock()
+_UPDATE_CONTEXT = threading.local()
+
+
+class UpdateBudgetExceeded(RuntimeError):
+    """The batch may resume later without discarding committed market rows."""
+
+
+class SourceUnavailableError(RuntimeError):
+    """Immediate retries cannot repair a rejected upstream request."""
+
+
+def _request_timeout(default=30):
+    deadline = getattr(_UPDATE_CONTEXT, "deadline", None)
+    if deadline is None:
+        return default
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise UpdateBudgetExceeded("本批更新時間已到，未完成資料可繼續更新")
+    return min(8., remaining)
+
+
+def _update_phase(symbol, message):
+    callback = getattr(_UPDATE_CONTEXT, "phase", None)
+    if callback:
+        callback(symbol, message)
+
+
+class FinMindBlockedError(SourceUnavailableError):
+    """FinMind rejected this Render egress IP; callers may use TWSE fallback."""
+
+
+# ---------------------------------------------------------------------------
+# DB 連線 / 建表
+# ---------------------------------------------------------------------------
+def get_conn():
+    """回傳 SQLite 連線(connection)。每次使用後請自行 close。"""
+    conn = sqlite3.connect(config.DB_PATH)
+    return conn
+
+
+def _hydrate_market_seed(conn) -> None:
+    """Merge the bundled real-data seed into the actual APP_DATA_DIR database."""
+    seed_gz = os.path.join(config.BASE_DIR, "data_seed", "market.db.gz")
+    if not os.path.exists(seed_gz):
+        return
+    conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+    row = conn.execute(
+        "SELECT value FROM meta WHERE key = ?", ("market_seed_version",)
+    ).fetchone()
+    if row and row[0] == _MARKET_SEED_VERSION:
+        return
+
+    temp_path = None
+    attached = False
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as temp_file:
+            temp_path = temp_file.name
+            with gzip.open(seed_gz, "rb") as source:
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    temp_file.write(chunk)
+        conn.execute("ATTACH DATABASE ? AS market_seed", (temp_path,))
+        attached = True
+        for table in ("ohlcv", "chip_weekly", "stock_info"):
+            conn.execute(
+                f"INSERT OR REPLACE INTO {table} SELECT * FROM market_seed.{table}"
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+            ("market_seed_version", _MARKET_SEED_VERSION),
+        )
+        conn.commit()
+    finally:
+        if attached:
+            conn.execute("DETACH DATABASE market_seed")
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def init_db():
+    """建立 ohlcv(日頻)與 chip_weekly(週頻籌碼)兩張表(若不存在)。"""
+    conn = get_conn()
+    cur = conn.cursor()
+    # 日頻 OHLCV;以 (symbol, date) 為主鍵避免重複寫入
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ohlcv (
+            symbol TEXT NOT NULL,
+            date   TEXT NOT NULL,
+            open   REAL,
+            high   REAL,
+            low    REAL,
+            close  REAL,
+            volume REAL,
+            PRIMARY KEY (symbol, date)
+        )
+        """
+    )
+    # 週頻集保大戶籌碼;big_shares=大戶持股、total_shares=總股數
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chip_weekly (
+            symbol       TEXT NOT NULL,
+            date         TEXT NOT NULL,
+            big_shares   REAL,
+            total_shares REAL,
+            PRIMARY KEY (symbol, date)
+        )
+        """
+    )
+    # 股票基本資料(代號 -> 中文名稱),快取 FinMind TaiwanStockInfo 查詢結果
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS stock_info (
+            symbol TEXT PRIMARY KEY,
+            name   TEXT
+        )
+        """
+    )
+    conn.commit()
+    _hydrate_market_seed(conn)
+    conn.close()
+    _INITIALIZED_PATHS.add(config.DB_PATH)
+
+
+def ensure_db() -> None:
+    """確保新建的 SQLite 檔已具備行情資料表。"""
+    path = config.DB_PATH
+    if path in _INITIALIZED_PATHS:
+        return
+    with _INIT_LOCK:
+        if path not in _INITIALIZED_PATHS:
+            init_db()
+
+
+# ---------------------------------------------------------------------------
+# 讀取原始資料
+# ---------------------------------------------------------------------------
+def load_ohlcv(symbol: str) -> pd.DataFrame:
+    """讀取某標的日頻 OHLCV,以 DatetimeIndex 排序回傳。"""
+    ensure_db()
+    conn = get_conn()
+    df = pd.read_sql_query(
+        "SELECT date, open, high, low, close, volume FROM ohlcv "
+        "WHERE symbol = ? ORDER BY date",
+        conn, params=(symbol,),
+    )
+    conn.close()
+    if df.empty:
+        return df
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date").sort_index()
+    return df
+
+
+def load_chip_weekly(symbol: str) -> pd.DataFrame:
+    """讀取某標的週頻籌碼,以 DatetimeIndex 排序回傳。"""
+    ensure_db()
+    conn = get_conn()
+    df = pd.read_sql_query(
+        "SELECT date, big_shares, total_shares FROM chip_weekly "
+        "WHERE symbol = ? ORDER BY date",
+        conn, params=(symbol,),
+    )
+    conn.close()
+    if df.empty:
+        return df
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date").sort_index()
+    return df
+
+
+def has_symbol(symbol: str) -> bool:
+    """檢查 DB 是否已有此標的的日頻資料。"""
+    ensure_db()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM ohlcv WHERE symbol = ? LIMIT 1", (symbol,))
+    row = cur.fetchone()
+    conn.close()
+    return row is not None
+
+
+# ---------------------------------------------------------------------------
+# 特徵工程
+# ---------------------------------------------------------------------------
+def _ema(series: pd.Series, span: int) -> pd.Series:
+    """指數移動平均(EMA);adjust=False 為交易常用遞迴定義。"""
+    return series.ewm(span=span, adjust=False).mean()
+
+
+def _add_macd(df: pd.DataFrame) -> pd.DataFrame:
+    """計算 MACD 系列特徵:DIF、DEA、OSC,以及斜率、符號、相對位置。"""
+    close = df["close"]
+    ema_fast = _ema(close, config.MACD_FAST)            # 快速 EMA
+    ema_slow = _ema(close, config.MACD_SLOW)            # 慢速 EMA
+    df["dif"] = ema_fast - ema_slow                      # DIF
+    df["dea"] = _ema(df["dif"], config.MACD_SIGNAL)      # DEA = EMA9(DIF)
+    df["osc"] = df["dif"] - df["dea"]                    # OSC(柱狀體)
+    # 三者斜率(用一階差分 diff 近似當日變化量)
+    df["dif_slope"] = df["dif"].diff()
+    df["dea_slope"] = df["dea"].diff()
+    df["osc_slope"] = df["osc"].diff()
+    # OSC 正負號:>0 -> 1、<0 -> -1、=0 -> 0
+    df["osc_sign"] = np.sign(df["osc"])
+    # DIF 是否站上 DEA(多方訊號)
+    df["dif_above_dea"] = (df["dif"] > df["dea"]).astype(int)
+    return df
+
+
+def _rsi(close: pd.Series, n: int = 14) -> pd.Series:
+    """RSI(相對強弱指標):用 Wilder EMA 平滑漲跌幅,回傳 0~100。"""
+    delta = close.diff()
+    up = delta.clip(lower=0.0)
+    dn = (-delta).clip(lower=0.0)
+    roll_up = up.ewm(alpha=1.0 / n, adjust=False).mean()
+    roll_dn = dn.ewm(alpha=1.0 / n, adjust=False).mean()
+    rs = roll_up / roll_dn.replace(0, np.nan)
+    rsi = 100.0 - 100.0 / (1.0 + rs)
+    return rsi.fillna(50.0)             # 無波動時給中性 50
+
+
+def _add_tech_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    補強技術特徵(全部僅用當下/過去資訊,無未來洩漏):
+      動能 mom_5/20/60、RSI、均線乖離 sma_gap、趨勢 trend/trend_up、
+      波動 vol_20、布林位置 bb_pos、量能 vol_ratio。
+    """
+    close = df["close"]
+    # 動能(多時間尺度報酬)
+    df["mom_5"] = close.pct_change(5)
+    df["mom_20"] = close.pct_change(20)
+    df["mom_60"] = close.pct_change(60)
+    # RSI(14)
+    df["rsi_14"] = _rsi(close, 14)
+    # 均線乖離與趨勢排列
+    sma_fast = close.rolling(config.TREND_FAST).mean()
+    sma_slow = close.rolling(config.TREND_SLOW).mean()
+    df["sma_gap"] = close / sma_slow - 1.0
+    df["trend"] = sma_fast / sma_slow - 1.0
+    df["trend_up"] = (sma_fast > sma_slow).astype(int)
+    # 波動度(20 日報酬標準差)
+    df["vol_20"] = df["ret"].rolling(20).std()
+    # 布林通道位置 %b
+    ma20 = close.rolling(20).mean()
+    sd20 = close.rolling(20).std()
+    df["bb_pos"] = (close - ma20) / (2.0 * sd20.replace(0, np.nan))
+    # 量能比(相對 20 日均量)
+    vol_ma = df["volume"].rolling(20).mean()
+    df["vol_ratio"] = df["volume"] / vol_ma.replace(0, np.nan) - 1.0
+    return df
+
+
+def _add_chip_features(df: pd.DataFrame, chip: pd.DataFrame) -> pd.DataFrame:
+    """
+    計算籌碼特徵並做日週對齊。
+      chip_ratio     = big_shares / total_shares(集中度)
+      chip_ratio_chg = 週變化率 pct_change()
+      chip_ratio_mom = 4 週動能(rolling 4 期變化)
+    對齊方式:先在「週頻」上算好特徵,再 reindex 到日頻索引並 ffill()
+    (新籌碼公布前沿用上週值,符合資訊可得時點,避免未來資訊洩漏)。
+    """
+    if chip is None or chip.empty:
+        # 無籌碼資料時補 0,維持欄位完整
+        df["chip_ratio"] = 0.0
+        df["chip_ratio_chg"] = 0.0
+        df["chip_ratio_mom"] = 0.0
+        return df
+
+    w = chip.copy()
+    # 集中度:避免除以 0
+    w["chip_ratio"] = w["big_shares"] / w["total_shares"].replace(0, np.nan)
+    w["chip_ratio_chg"] = w["chip_ratio"].pct_change()                 # 週變化率
+    w["chip_ratio_mom"] = w["chip_ratio"] - w["chip_ratio"].shift(4)   # 4 週動能
+
+    chip_feats = w[["chip_ratio", "chip_ratio_chg", "chip_ratio_mom"]]
+    # 日週對齊:reindex 到日頻索引 -> ffill(沿用最近一次公布值)
+    aligned = chip_feats.reindex(df.index, method=None).ffill()
+    df = df.join(aligned)
+    # 對齊後仍可能在最前面留有 NaN(尚無任何籌碼公布),補 0
+    df[["chip_ratio", "chip_ratio_chg", "chip_ratio_mom"]] = (
+        df[["chip_ratio", "chip_ratio_chg", "chip_ratio_mom"]].fillna(0.0)
+    )
+    return df
+
+
+def build_features(symbol: str) -> pd.DataFrame:
+    """
+    主特徵組裝函式:讀 OHLCV + 籌碼 -> 計算 MACD/籌碼特徵 -> 日週對齊。
+    回傳含 FEATURE_COLS 全部欄位的日頻 DataFrame(已去除暖機期 NaN)。
+    """
+    df = load_ohlcv(symbol)
+    if df.empty:
+        raise ValueError(f"找不到標的 {symbol} 的 OHLCV 資料,請先 seed_sample_data 或匯入真實資料。")
+
+    chip = load_chip_weekly(symbol)
+    # 當日報酬要先算(技術特徵的波動度會用到);供 ML 貼標籤與回測,非特徵
+    df["ret"] = df["close"].pct_change()
+    df = _add_macd(df)                  # MACD 特徵
+    df = _add_tech_features(df)         # 動能/RSI/趨勢/波動/量能 技術特徵
+    df = _add_chip_features(df, chip)   # 籌碼特徵 + 日週對齊
+
+    # 丟掉均線/動能等暖機期造成的 NaN(僅針對特徵欄位)
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.dropna(subset=config.FEATURE_COLS).copy()
+    return df
+
+
+# ---------------------------------------------------------------------------
+# 合成資料(讓系統無真實資料也能立即運行)
+# ---------------------------------------------------------------------------
+def seed_sample_data(symbol: str, n_days: int = 500, seed: int = 7) -> None:
+    """
+    產生「帶趨勢的合成股價」+「與報酬弱相關的週籌碼」,寫入 SQLite。
+    - 股價:幾何隨機漫步疊加緩慢正弦趨勢(geometric random walk + trend)
+    - 籌碼:集中度受未來報酬輕微牽引(弱相關),模擬大戶提前佈局
+    """
+    init_db()
+    rng = np.random.default_rng(seed)
+
+    # --- 日頻交易日(以週一~週五為交易日)---
+    dates = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=n_days)
+
+    # --- 合成股價:漂移 + 隨機波動 + 慢速趨勢 ---
+    t = np.arange(n_days)
+    trend = 0.0004 * np.sin(t / 60.0)                  # 緩慢週期趨勢
+    noise = rng.normal(0, 0.012, n_days)               # 日波動
+    daily_ret = 0.0002 + trend + noise                  # 合成日報酬
+    close = 100.0 * np.exp(np.cumsum(daily_ret))       # 由報酬累積成價格
+
+    # 由 close 反推 OHLC(加入日內隨機振幅)
+    intraday = np.abs(rng.normal(0, 0.006, n_days))
+    high = close * (1 + intraday)
+    low = close * (1 - intraday)
+    open_ = np.concatenate([[close[0]], close[:-1]])   # 開盤≈昨收
+    volume = rng.integers(1000, 50000, n_days).astype(float)
+
+    ohlcv = pd.DataFrame({
+        "symbol": symbol,
+        "date": dates.strftime("%Y-%m-%d"),
+        "open": open_, "high": high, "low": low,
+        "close": close, "volume": volume,
+    })
+
+    # --- 週頻籌碼:每週五一筆;集中度與「未來一週報酬」弱相關 ---
+    fwd_week_ret = pd.Series(daily_ret, index=dates).shift(-5).rolling(5).sum()
+    fwd_week_ret = fwd_week_ret.fillna(0.0)
+    # 週五取樣
+    week_mask = dates.weekday == 4
+    week_dates = dates[week_mask]
+    # 集中度 base 0.45,加入弱相關訊號(係數 0.8)與雜訊
+    base = 0.45
+    signal = 0.8 * fwd_week_ret.values[week_mask]
+    chip_noise = rng.normal(0, 0.01, week_mask.sum())
+    chip_ratio = np.clip(base + signal + chip_noise, 0.05, 0.95)
+    total_shares = rng.integers(800000, 1200000, week_mask.sum()).astype(float)
+    big_shares = chip_ratio * total_shares
+
+    chip = pd.DataFrame({
+        "symbol": symbol,
+        "date": week_dates.strftime("%Y-%m-%d"),
+        "big_shares": big_shares,
+        "total_shares": total_shares,
+    })
+
+    # --- 寫入 DB(先刪同標的舊資料,避免主鍵衝突)---
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM ohlcv WHERE symbol = ?", (symbol,))
+    cur.execute("DELETE FROM chip_weekly WHERE symbol = ?", (symbol,))
+    conn.commit()
+    ohlcv.to_sql("ohlcv", conn, if_exists="append", index=False)
+    chip.to_sql("chip_weekly", conn, if_exists="append", index=False)
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# 真實資料(FinMind 台股 API)
+# ---------------------------------------------------------------------------
+def _finmind_get(dataset: str, data_id: str, start: str) -> pd.DataFrame:
+    """
+    呼叫 FinMind /api/v4/data,回傳該 dataset 的 DataFrame。
+    免 token 可少量使用;config.FINMIND_TOKEN 有值時帶上以提高額度。
+    status != 200 視為失敗(例如代號錯誤、超過免費額度),拋出例外。
+    """
+    global _FINMIND_BLOCKED_UNTIL
+    if (_FINMIND_BLOCKED_UNTIL is not None
+            and _dt.datetime.now() < _FINMIND_BLOCKED_UNTIL):
+        raise FinMindBlockedError("FinMind ip banned (circuit open)")
+
+    params = {"dataset": dataset, "data_id": data_id, "start_date": start}
+    headers = {}
+    if config.FINMIND_TOKEN:
+        headers["Authorization"] = f"Bearer {config.FINMIND_TOKEN}"
+    last_error = None
+    for attempt in range(1 if getattr(_UPDATE_CONTEXT, "deadline", None) is not None else 3):
+        try:
+            resp = requests.get(
+                config.FINMIND_URL, params=params, headers=headers, timeout=_request_timeout()
+            )
+        except requests.RequestException as ex:
+            last_error = ex
+            if attempt < 2 and getattr(_UPDATE_CONTEXT, "deadline", None) is None:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            break
+
+        try:
+            js = resp.json()
+        except ValueError:
+            js = {}
+        if 400 <= resp.status_code < 500:
+            # Invalid credentials, quota or IP ban will not recover by retrying.
+            msg = js.get("msg") or resp.reason or "client error"
+            if resp.status_code in (401, 402, 403, 429):
+                # Quota resets hourly; an IP ban is also temporary.
+                _FINMIND_BLOCKED_UNTIL = _dt.datetime.now() + _dt.timedelta(hours=1)
+                raise FinMindBlockedError(
+                    f"FinMind {dataset}/{data_id} HTTP {resp.status_code}: {msg}"
+                )
+            raise SourceUnavailableError(f"FinMind {dataset}/{data_id} HTTP {resp.status_code}: {msg}")
+        try:
+            resp.raise_for_status()
+        except requests.RequestException as ex:
+            last_error = ex
+            if attempt < 2 and getattr(_UPDATE_CONTEXT, "deadline", None) is None:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            break
+        if js.get("status") != 200:
+            code = js.get("status")
+            if code in (401, 402, 403, 429):
+                _FINMIND_BLOCKED_UNTIL = _dt.datetime.now() + _dt.timedelta(hours=1)
+                raise FinMindBlockedError(f"FinMind {dataset} 狀態 {code}: {js.get('msg')}")
+            raise SourceUnavailableError(f"FinMind {dataset} 失敗:{js.get('msg')}")
+        return pd.DataFrame(js.get("data", []))
+    raise RuntimeError(f"FinMind {dataset}/{data_id} 更新失敗: {last_error}")
+
+
+def _twse_recent_prices(symbol: str, asof=None, start=None) -> pd.DataFrame:
+    """Fetch every requested month, so an old cache is not patched with one bar."""
+    end = pd.Timestamp(asof or _last_trading_day()).normalize()
+    first = (pd.Timestamp(start).normalize() if start is not None
+             else end - pd.DateOffset(months=1))
+    months = pd.date_range(first.replace(day=1), end.replace(day=1), freq="MS")[::-1]
+    rows = []
+    for month in months:
+        _update_phase(symbol, f"補抓 {month:%Y-%m} 行情")
+        resp = requests.get(
+            "https://www.twse.com.tw/exchangeReport/STOCK_DAY",
+            params={"response": "json", "date": month.strftime("%Y%m01"),
+                    "stockNo": symbol},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=_request_timeout(),
+        )
+        resp.raise_for_status()
+        js = resp.json()
+        if js.get("stat") != "OK":
+            if start is not None:
+                raise RuntimeError(f"TWSE {symbol} {month:%Y-%m} 缺少補段行情：{js.get('stat', '無狀態')}")
+            continue
+        if start is not None and not js.get("data"):
+            raise RuntimeError(f"TWSE {symbol} {month:%Y-%m} 補段行情為空")
+        for values in js.get("data", []):
+            if len(values) < 9:
+                continue
+            y, m, d = (int(part) for part in values[0].split("/"))
+
+            def number(value):
+                return pd.to_numeric(str(value).replace(",", ""), errors="coerce")
+
+            rows.append({
+                "symbol": symbol,
+                "date": f"{y + 1911:04d}-{m:02d}-{d:02d}",
+                "open": number(values[3]), "high": number(values[4]),
+                "low": number(values[5]), "close": number(values[6]),
+                "volume": number(values[1]),
+            })
+    out = pd.DataFrame(rows)
+    if out.empty:
+        raise RuntimeError(f"TWSE 查無 {symbol} 最近行情")
+    out = out.dropna(subset=["close"]).drop_duplicates("date").sort_values("date")
+    dates = pd.to_datetime(out["date"])
+    within = dates <= end
+    if start is not None:
+        within &= dates >= first
+    out = out.loc[within]
+    if out.empty:
+        raise RuntimeError(f"TWSE 查無 {symbol} 指定區段行情")
+    return out
+
+
+def _twse_latest_snapshot() -> pd.DataFrame:
+    """Fetch the latest daily rows for the entire listed market in one request."""
+    global _TWSE_SNAPSHOT_CACHE
+    now = _dt.datetime.now()
+    if (_TWSE_SNAPSHOT_CACHE is not None
+            and (now - _TWSE_SNAPSHOT_CACHE[0]).total_seconds() < 300):
+        return _TWSE_SNAPSHOT_CACHE[1]
+    resp = requests.get(
+        "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+        headers={"User-Agent": "Mozilla/5.0"}, timeout=_request_timeout(),
+    )
+    resp.raise_for_status()
+    rows = []
+    for item in resp.json():
+        raw_date = str(item.get("Date", ""))
+        if len(raw_date) != 7:
+            continue
+
+        def number(value):
+            return pd.to_numeric(str(value).replace(",", ""), errors="coerce")
+
+        rows.append({
+            "symbol": str(item.get("Code", "")).strip(),
+            "date": f"{int(raw_date[:3]) + 1911:04d}-{raw_date[3:5]}-{raw_date[5:7]}",
+            "open": number(item.get("OpeningPrice")),
+            "high": number(item.get("HighestPrice")),
+            "low": number(item.get("LowestPrice")),
+            "close": number(item.get("ClosingPrice")),
+            "volume": number(item.get("TradeVolume")),
+        })
+    out = pd.DataFrame(rows).dropna(subset=["symbol", "close"])
+    if out.empty:
+        raise RuntimeError("TWSE 全市場最新行情為空")
+    _TWSE_SNAPSHOT_CACHE = (now, out)
+    return out
+
+
+def _merge_twse_prices(symbol: str, fresh: pd.DataFrame) -> None:
+    """Merge supplied TWSE rows without downloading or replacing old history."""
+    ensure_db()
+    conn = get_conn()
+    old = pd.read_sql_query(
+        "SELECT symbol,date,open,high,low,close,volume FROM ohlcv WHERE symbol = ?",
+        conn, params=(symbol,),
+    )
+    combined = pd.concat([old, fresh], ignore_index=True)
+    combined = combined.drop_duplicates("date", keep="last").sort_values("date")
+    combined = _adjust_corporate_actions(combined)
+    try:
+        # One transaction: failed insertion must not erase a usable cache.
+        with conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO ohlcv "
+                "(symbol,date,open,high,low,close,volume) VALUES (?,?,?,?,?,?,?)",
+                combined[["symbol", "date", "open", "high", "low", "close", "volume"]]
+                .itertuples(index=False, name=None),
+            )
+    finally:
+        conn.close()
+
+
+def fetch_twse_recent_data(symbol: str) -> None:
+    """Merge official TWSE recent prices into the existing local history."""
+    _merge_twse_prices(symbol, _twse_recent_prices(symbol))
+
+
+def fetch_twse_latest_data(symbol: str) -> None:
+    """Update one symbol from the cached all-market snapshot."""
+    before = last_ohlcv_date(symbol)
+    expected = _last_trading_day()
+    if before is not None and len(pd.bdate_range(before.normalize(), expected)) > 2:
+        # Current/previous month alone is insufficient for a multi-month gap.
+        # Do not advance MAX(date) until the whole missing interval is fetched.
+        fresh = _twse_recent_prices(
+            symbol, asof=expected, start=before.normalize() + pd.Timedelta(days=1))
+        _merge_twse_prices(symbol, fresh)
+        return
+    snapshot = _twse_latest_snapshot()
+    fresh = snapshot[snapshot["symbol"] == symbol]
+    if fresh.empty:
+        # Non-listed/exceptional symbol: use the monthly endpoint as fallback.
+        fresh = _twse_recent_prices(symbol)
+    _merge_twse_prices(symbol, fresh)
+
+
+def _refresh_market_data(symbol: str) -> None:
+    """Use TWSE for routine refreshes; FinMind is reserved for missing history."""
+    if has_symbol(symbol):
+        latest = (last_ohlcv_date(symbol)
+                  if getattr(_UPDATE_CONTEXT, "deadline", None) is not None else None)
+        # A chip-only retry must not re-download or rewrite fresh prices.
+        if (getattr(_UPDATE_CONTEXT, "force", False) or latest is None
+                or latest.normalize() < _last_trading_day()):
+            _update_phase(symbol, "更新行情")
+            fetch_twse_latest_data(symbol)
+    else:
+        fetch_real_data(symbol)
+    if chip_needs_update(symbol):
+        _update_phase(symbol, "更新外資持股")
+        fetch_chip_data(symbol)
+
+
+def _shareholding_frame(symbol: str, start: str) -> pd.DataFrame:
+    """Validate the existing FinMind shareholding schema before writing."""
+    sh = _finmind_get("TaiwanStockShareholding", symbol, start)
+    required = {"date", "ForeignInvestmentShares", "NumberOfSharesIssued"}
+    if sh.empty or not required <= set(sh.columns):
+        raise RuntimeError(f"FinMind 查無 {symbol} 有效外資持股資料")
+    dates = pd.to_datetime(sh["date"], errors="coerce")
+    chip = pd.DataFrame({
+        "symbol": symbol, "date": dates.dt.strftime("%Y-%m-%d"),
+        "big_shares": pd.to_numeric(sh["ForeignInvestmentShares"], errors="coerce"),
+        "total_shares": pd.to_numeric(sh["NumberOfSharesIssued"], errors="coerce"),
+    }).dropna()
+    chip = chip[(chip["total_shares"] > 0) & (chip["big_shares"] >= 0)
+                & (chip["big_shares"] <= chip["total_shares"])]
+    if chip.empty:
+        raise RuntimeError(f"FinMind {symbol} 外資持股資料皆無效")
+    return chip.drop_duplicates("date", keep="last").sort_values("date")
+
+
+def _store_chip_frame(conn, chip):
+    conn.executemany(
+        "INSERT OR REPLACE INTO chip_weekly "
+        "(symbol,date,big_shares,total_shares) VALUES (?,?,?,?)",
+        chip[["symbol", "date", "big_shares", "total_shares"]].itertuples(index=False, name=None),
+    )
+
+
+def fetch_chip_data(symbol: str, start: str = None) -> None:
+    """Refresh chips independently; unavailable responses preserve old rows."""
+    latest = last_chip_date(symbol)
+    start = start or (latest.strftime("%Y-%m-%d") if latest is not None else config.FINMIND_START)
+    chip = _shareholding_frame(symbol, start)
+    conn = get_conn()
+    try:
+        with conn:
+            _store_chip_frame(conn, chip)
+    finally:
+        conn.close()
+
+
+def _adjust_corporate_actions(ohlcv: pd.DataFrame) -> pd.DataFrame:
+    """
+    清理資料錯誤 + 回溯還原公司行動(除權息/股票分割/減資)造成的價格跳空。
+      1) 丟棄收盤<=0 或 NaN 的壞資料列(例:停牌/資料源補 0,否則會讓比例變 0/inf)。
+      2) 台股單日漲跌幅 ±10%,故「收盤對收盤」比例超過 ±CA_JUMP_THRESHOLD 者
+         必為公司行動(非交易)。以「由後往前」累乘還原因子,將該跳空日「之前」的
+         OHLC 全部乘上跳空比例,使報酬序列連續;最新一段價格維持市場原值。
+    回傳清理 + 還原後的同結構 DataFrame(欄位、順序不變)。
+    """
+    df = ohlcv.copy()
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    # 1) 丟壞列(收盤非正或 NaN)
+    df = df[df["close"] > 0].reset_index(drop=True)
+    if len(df) < 2:
+        return df
+
+    for col in ("open", "high", "low"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    close = df["close"]
+    ratio = (close / close.shift(1)).values             # 收盤對收盤比例
+    thr = config.CA_JUMP_THRESHOLD
+    n = len(df)
+
+    # 2) 由後往前累乘還原因子:跳空日之前的價格乘上比例 -> 連續化
+    factors = np.ones(n, dtype=float)
+    f = 1.0
+    for i in range(n - 1, -1, -1):
+        factors[i] = f
+        r = ratio[i]
+        if i > 0 and np.isfinite(r) and (r < 1.0 - thr or r > 1.0 + thr):
+            f *= r                                       # 此跳空之前的歷史價一律縮放
+    if not np.isclose(f, 1.0) or (factors != 1.0).any():
+        for col in ("open", "high", "low", "close"):
+            df[col] = df[col] * factors                  # 還原 OHLC(volume 非特徵,不調整)
+    return df
+
+
+def fetch_real_data(symbol: str, start: str = None) -> None:
+    """
+    從 FinMind 抓真實台股資料,寫入與合成資料完全相同的 ohlcv / chip_weekly 表,
+    因此上層(build_features -> train -> backtest)完全不需更動。
+      - 股價:TaiwanStockPrice(open/max/min/close/Trading_Volume)
+      - 籌碼:TaiwanStockShareholding 的「外資持股」作為大戶集中度代理
+              big_shares   = ForeignInvestmentShares(外資持股張數)
+              total_shares = NumberOfSharesIssued(發行股數)
+              -> chip_ratio = 外資持股比例(台股大型股最主要的法人籌碼指標)
+    註:集保股權分散表(精準大戶級距)需 FinMind 付費等級,
+        故免費版改用外資持股比例,語意同為「大戶集中度」。
+    """
+    start = start or config.FINMIND_START
+    init_db()
+
+    # 1) 日頻股價
+    try:
+        px = _finmind_get("TaiwanStockPrice", symbol, start)
+    except FinMindBlockedError:
+        fetch_twse_recent_data(symbol)
+        return
+    if px.empty:
+        raise RuntimeError(f"FinMind 查無 {symbol} 股價(代號是否正確?例:2330)")
+    ohlcv = pd.DataFrame({
+        "symbol": symbol,
+        "date": px["date"],
+        "open": px["open"], "high": px["max"], "low": px["min"],
+        "close": px["close"], "volume": px["Trading_Volume"],
+    })
+    # 還原股價:清理壞列 + 回溯還原除權息/分割/減資跳空(免費版無還原股價,故自行處理)
+    ohlcv = _adjust_corporate_actions(ohlcv)
+
+    # 2) Full price-history refresh may proceed while unavailable chips remain
+    # cached. Batch updates separately verify and report chip freshness.
+    try:
+        chip = _shareholding_frame(symbol, start)
+    except Exception:
+        chip = pd.DataFrame(columns=["symbol", "date", "big_shares", "total_shares"])
+
+    # 3) Replace the price history atomically; chips are upserted, never erased
+    # merely because an upstream chip request failed or returned no rows.
+    conn = get_conn()
+    try:
+        with conn:
+            conn.execute("DELETE FROM ohlcv WHERE symbol = ?", (symbol,))
+            conn.executemany(
+                "INSERT INTO ohlcv (symbol,date,open,high,low,close,volume) VALUES (?,?,?,?,?,?,?)",
+                ohlcv[["symbol", "date", "open", "high", "low", "close", "volume"]]
+                .itertuples(index=False, name=None),
+            )
+            if not chip.empty:
+                _store_chip_frame(conn, chip)
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# 股票名稱查詢(FinMind TaiwanStockInfo,免費;查到後寫入 stock_info 快取)
+# ---------------------------------------------------------------------------
+_NAME_CACHE = {}   # 程序內記憶體快取(symbol -> name),避免重複查 DB / API
+
+
+def get_stock_name(symbol: str) -> str:
+    """
+    回傳股票中文名稱(例:2330 -> 台積電)。三層快取:
+      1) 記憶體 _NAME_CACHE
+      2) SQLite stock_info 表(跨程序持久)
+      3) FinMind TaiwanStockInfo API(免費),查到後寫回 DB + 記憶體
+    查無(合成/離線/代號錯誤)時回傳空字串,呼叫端自行退回顯示代號。
+    """
+    symbol = symbol.strip().upper()
+    if symbol in _NAME_CACHE:
+        return _NAME_CACHE[symbol]
+
+    init_db()
+    # 2) DB 快取
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM stock_info WHERE symbol = ?", (symbol,))
+    row = cur.fetchone()
+    conn.close()
+    if row and row[0]:
+        _NAME_CACHE[symbol] = row[0]
+        return row[0]
+
+    # 3) FinMind API(僅在資料來源為 finmind 時嘗試)
+    name = ""
+    if config.DATA_SOURCE == "finmind":
+        try:
+            info = _finmind_get("TaiwanStockInfo", symbol, config.FINMIND_START)
+            if not info.empty and "stock_name" in info.columns:
+                match = info[info["stock_id"].astype(str) == symbol]
+                if not match.empty:
+                    name = str(match["stock_name"].iloc[-1])
+        except Exception:
+            name = ""
+
+    if name:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("INSERT OR REPLACE INTO stock_info (symbol, name) VALUES (?, ?)",
+                    (symbol, name))
+        conn.commit()
+        conn.close()
+        _NAME_CACHE[symbol] = name
+    return name
+
+
+# ---------------------------------------------------------------------------
+# 每日資料更新(增量:只刷新「落後到最新交易日」的標的)
+#   做法:偵測 DB 內某檔最後一筆日期是否落後最近交易日;落後就重抓整段並覆寫
+#   (重抓才能正確重算除權息回溯還原 factor,純 append 會破壞還原連續性)。
+#   以「整體節流」(預設 6 小時)避免每次開 app 都重抓 50 檔。
+# ---------------------------------------------------------------------------
+def _ensure_meta():
+    conn = get_conn()
+    conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+    conn.commit()
+    conn.close()
+
+
+def _meta_get(key: str):
+    _ensure_meta()
+    conn = get_conn()
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def _meta_set(key: str, value: str):
+    _ensure_meta()
+    conn = get_conn()
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                 (key, str(value)))
+    conn.commit()
+    conn.close()
+
+
+def last_ohlcv_date(symbol: str):
+    """DB 內某檔最後一筆日期(pd.Timestamp);查無回 None。"""
+    ensure_db()
+    conn = get_conn()
+    row = conn.execute("SELECT MAX(date) FROM ohlcv WHERE symbol = ?",
+                       (symbol,)).fetchone()
+    conn.close()
+    if row and row[0]:
+        try:
+            return pd.to_datetime(row[0])
+        except Exception:
+            return None
+    return None
+
+
+def _last_trading_day(asof: _dt.datetime = None) -> pd.Timestamp:
+    """
+    估「最近一個應該已有資料的交易日」:
+      FinMind 約傍晚才更新當日 K 棒,故 18:00 前先看「昨天」;再往前跳過週末。
+    (無內建台股假日表;若遇平日休市,頂多多刷一次抓不到新資料,由節流吸收。)
+    """
+    taipei = _dt.timezone(_dt.timedelta(hours=8))
+    now = asof or _dt.datetime.now(taipei)
+    if now.tzinfo is not None:
+        now = now.astimezone(taipei)
+    d = now.date()
+    if now.hour < 18:
+        d = d - _dt.timedelta(days=1)
+    while d.weekday() >= 5:                    # 5=六、6=日 -> 往前找平日
+        d = d - _dt.timedelta(days=1)
+    return pd.Timestamp(d)
+
+
+def last_chip_date(symbol: str):
+    """Latest stored shareholding date; read without changing cached rows."""
+    ensure_db()
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT MAX(date) FROM chip_weekly WHERE symbol = ?", (symbol,)).fetchone()
+        return pd.Timestamp(row[0]) if row and row[0] else None
+    finally:
+        conn.close()
+
+
+def _chip_required(symbol: str) -> bool:
+    return (config.DATA_SOURCE == "finmind" and getattr(config, "ROTATION_FASTSELL_GATE", False)
+            and symbol != config.BENCHMARK_SYMBOL)
+
+
+def chip_needs_update(symbol: str, asof: _dt.datetime = None) -> bool:
+    """A conservative 7-calendar-day allowance; not a verified release rule."""
+    if not _chip_required(symbol):
+        return False
+    last = last_chip_date(symbol)
+    return last is None or last.normalize() + pd.Timedelta(days=7) < _last_trading_day(asof)
+
+
+def needs_update(symbol: str, asof: _dt.datetime = None) -> bool:
+    """此檔是否落後最近交易日(合成資料來源時一律不更新)。"""
+    if config.DATA_SOURCE != "finmind":
+        return False
+    last = last_ohlcv_date(symbol)
+    if last is None:
+        return True
+    return (last.normalize() < _last_trading_day(asof).normalize()
+            or chip_needs_update(symbol, asof))
+
+
+def update_data(symbol: str, force: bool = False) -> str:
+    """單檔:落後才重抓整段覆寫。回傳 'updated' / 'current' / 'stale' / 'failed'。"""
+    symbol = (symbol or "").strip().upper()
+    if not symbol:
+        return "failed"
+    if not force and not needs_update(symbol):
+        return "current"
+    try:
+        before = last_ohlcv_date(symbol)
+        before_chip = last_chip_date(symbol) if _chip_required(symbol) else None
+        _refresh_market_data(symbol)
+        after = last_ohlcv_date(symbol)
+        if after is None or after < _last_trading_day() or chip_needs_update(symbol):
+            return "stale"
+        after_chip = last_chip_date(symbol) if _chip_required(symbol) else None
+        chip_advanced = after_chip is not None and (before_chip is None or after_chip > before_chip)
+        return "updated" if before is None or after > before or chip_advanced else "current"
+    except Exception:
+        return "failed"
+
+
+def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
+                   throttle_hours: float = 6.0, progress=None,
+                   time_budget_seconds=None, max_attempts=3, on_start=None) -> dict:
+    """One shared-cache update at a time, with resumable bounded UI batches.
+
+    Requests inside a bounded batch get at most eight seconds each. The budget
+    is checked between requests; parsing/committing a response may finish later.
+    Legacy callers retain their original retry policy when no budget is given.
+    """
+    symbols = list(dict.fromkeys(s.strip().upper() for s in symbols if s and s.strip()))
+    if time_budget_seconds is not None and time_budget_seconds <= 0:
+        raise ValueError("time budget must be positive")
+    if not 1 <= max_attempts <= 3:
+        raise ValueError("attempt count must be between one and three")
+    if not _UPDATE_LOCK.acquire(blocking=False):
+        return {"busy": True, "updated": 0, "current": 0, "stale": 0, "failed": 0,
+                "pending": len(set(symbols)), "throttled": False,
+                "errors": {}, "stale_chip_symbols": []}
+    started = time.monotonic()
+    previous = vars(_UPDATE_CONTEXT).copy()
+    try:
+        _UPDATE_CONTEXT.deadline = (started + time_budget_seconds
+                                    if time_budget_seconds is not None else None)
+        _UPDATE_CONTEXT.force = force
+        result = _update_symbols(symbols, force, ignore_throttle, throttle_hours,
+                                 progress, max_attempts, on_start)
+        result["elapsed_seconds"] = round(time.monotonic() - started, 1)
+        return result
+    finally:
+        vars(_UPDATE_CONTEXT).clear()
+        vars(_UPDATE_CONTEXT).update(previous)
+        _UPDATE_LOCK.release()
+
+
+def _update_symbols(symbols, force=False, ignore_throttle=False,
+                    throttle_hours=6., progress=None, max_attempts=3, on_start=None):
+    """
+    批次更新每日資料(只刷新落後者)。
+      force=True:每檔都強制重抓;ignore_throttle=True:略過整體時間節流(手動按鈕用)。
+    失敗或仍落後者最多再補抓兩輪；完成者不重抓，統計以最後結果為準。
+    回傳 {updated, current, stale, failed, throttled(bool), asof, recovered, ...}。
+    """
+    global _TWSE_SNAPSHOT_CACHE
+    expected = _last_trading_day()
+    syms = list(dict.fromkeys(s.strip().upper() for s in symbols if s and s.strip()))
+    res = {"updated": 0, "current": 0, "stale": 0, "failed": 0,
+           "pending": 0, "pending_symbols": [], "time_budget_reached": False,
+           "nonretryable_symbols": [],
+           "throttled": False, "asof": None, "latest_asof": None,
+           "expected_asof": expected.strftime("%Y-%m-%d"),
+           "failed_symbols": [], "stale_symbols": [], "errors": {},
+           "retried_symbols": [], "recovered": 0,
+           "data_dates": {}, "chip_dates": {}, "stale_chip_symbols": [],
+           "calendar_note": "更新目標僅排除週末，未套用休市日曆；籌碼容許7日延遲"}
+    # A new target date or stale data must never be hidden by the six-hour cache.
+    if not force and not ignore_throttle:
+        ts = _meta_get("last_refresh")
+        target = _meta_get("last_refresh_target")
+        if ts and target == res["expected_asof"]:
+            try:
+                age = (_dt.datetime.now() - _dt.datetime.fromisoformat(ts)).total_seconds()
+                res["throttled"] = (0 <= age < throttle_hours * 3600
+                                    and all(not needs_update(s) for s in syms))
+            except (ValueError, TypeError):
+                pass
+    initial_dates = {}
+    initial_chip_dates = {}
+    statuses = {}
+    pending = syms
+    budget_reached = False
+    for attempt in range(max_attempts):
+        if not pending:
+            break
+        if attempt:
+            time.sleep(1.5 * attempt)
+            # Retry with fresh market data, not the same stale five-minute cache.
+            # All symbols in this pass still share a single successful download.
+            _TWSE_SNAPSHOT_CACHE = None
+            for symbol in pending:
+                if symbol not in res["retried_symbols"]:
+                    res["retried_symbols"].append(symbol)
+        retry = []
+        for i, symbol in enumerate(pending):
+            refresh_attempted = False
+            if on_start:
+                checked = i if attempt == 0 else len(syms)
+                _UPDATE_CONTEXT.phase = lambda s, label: on_start(checked, len(syms), s, label)
+                on_start(checked, len(syms), symbol, "檢查資料" if attempt == 0 else "補抓未完成資料")
+            try:
+                if symbol not in initial_dates:
+                    initial_dates[symbol] = last_ohlcv_date(symbol)
+                    initial_chip_dates[symbol] = last_chip_date(symbol) if _chip_required(symbol) else None
+                before = initial_dates[symbol]
+                if not res["throttled"] and (force or needs_update(symbol)):
+                    _request_timeout()
+                    refresh_attempted = True
+                    _refresh_market_data(symbol)
+                after = last_ohlcv_date(symbol)
+                after_chip = last_chip_date(symbol) if _chip_required(symbol) else None
+                res["data_dates"][symbol] = after.strftime("%Y-%m-%d") if after is not None else None
+                res["chip_dates"][symbol] = after_chip.strftime("%Y-%m-%d") if after_chip is not None else None
+                res["errors"].pop(symbol, None)
+                chip_stale = _chip_required(symbol) and (after_chip is None or after_chip + pd.Timedelta(days=7) < expected)
+                if after is None or after.normalize() < expected or chip_stale:
+                    status = "stale"
+                elif (before is None or after > before or (after_chip is not None
+                      and (initial_chip_dates[symbol] is None or after_chip > initial_chip_dates[symbol]))):
+                    status = "updated"
+                else:
+                    status = "current"
+            except UpdateBudgetExceeded:
+                budget_reached = True
+                res["time_budget_reached"] = True
+                for remaining in pending[i:]:
+                    statuses[remaining] = "pending"
+                break
+            except Exception as ex:
+                status = "failed"
+                res["errors"][symbol] = str(ex)
+                if isinstance(ex, SourceUnavailableError):
+                    res["nonretryable_symbols"].append(symbol)
+                try:
+                    after = last_ohlcv_date(symbol)
+                    res["data_dates"][symbol] = after.strftime("%Y-%m-%d") if after is not None else None
+                except Exception:
+                    res["data_dates"][symbol] = None
+            statuses[symbol] = status
+            if (refresh_attempted and status in ("failed", "stale")
+                    and symbol not in res["nonretryable_symbols"]):
+                retry.append(symbol)
+            if progress:
+                progress(i + 1 if attempt == 0 else len(syms), len(syms), symbol, status)
+        pending = retry
+        if budget_reached:
+            break
+    for symbol in syms:
+        if statuses.get(symbol) == "pending" or symbol not in statuses:
+            statuses[symbol] = "pending"
+            date = last_ohlcv_date(symbol)
+            res["data_dates"][symbol] = date.strftime("%Y-%m-%d") if date is not None else None
+    for symbol, status in statuses.items():
+        res[status] += 1
+        if status in ("failed", "stale", "pending"):
+            res[f"{status}_symbols"].append(symbol)
+        if _chip_required(symbol):
+            try:
+                chip_date = last_chip_date(symbol)
+                res["chip_dates"][symbol] = chip_date.strftime("%Y-%m-%d") if chip_date is not None else None
+                if chip_date is None or chip_date + pd.Timedelta(days=7) < expected:
+                    res["stale_chip_symbols"].append(symbol)
+            except Exception:
+                res["chip_dates"][symbol] = None
+                res["stale_chip_symbols"].append(symbol)
+    res["recovered"] = sum(statuses[s] in ("updated", "current")
+                           for s in res["retried_symbols"])
+    dates = [d for d in res["data_dates"].values() if d]
+    res["asof"] = min(dates) if dates and len(dates) == len(syms) else None
+    res["latest_asof"] = max(dates) if dates else None
+    if syms and not res["failed"] and not res["stale"] and not res["pending"] and not res["throttled"]:
+        _meta_set("last_refresh", _dt.datetime.now().isoformat())
+        _meta_set("last_refresh_target", res["expected_asof"])
+    return res
+
+
+def format_update_status(result: dict) -> str:
+    """Report actual stored dates, never the requested date as successful."""
+    if result.get("busy"):
+        return "另一個畫面正在更新同一份行情，請稍後重新檢查；未啟動重複下載。"
+    oldest = result.get("asof") or "部分缺資料"
+    newest = result.get("latest_asof") or "無"
+    recovery = f" · 自動補抓完成 {result['recovered']} 檔" if result.get("recovered") else ""
+    return (
+        f"資料日 {oldest}～{newest} · 更新 {result['updated']} 檔 · "
+        f"已達目標 {result['current']}{recovery} · 尚未到目標 {result.get('stale', 0)} · "
+        f"籌碼過期 {len(result.get('stale_chip_symbols', []))} · "
+        f"失敗 {result['failed']} · 待續抓 {result.get('pending', 0)}（目標 {result.get('expected_asof', '未知')}，"
+        "僅排除週末；延遲來源或休市可能尚無新資料）"
+    )
+
+
+def ensure_data(symbol: str, force: bool = False) -> str:
+    """
+    確保 DB 內有此標的資料,回傳實際使用的來源字串("cached"/"finmind"/"synthetic")。
+      - DB 已有且未強制更新 -> 直接沿用("cached")
+      - DATA_SOURCE=="finmind" -> 嘗試抓真實資料;失敗且允許 fallback 才退回合成
+      - 其餘 -> 合成資料
+    """
+    if has_symbol(symbol) and not force:
+        return "cached"
+    if config.DATA_SOURCE == "finmind":
+        try:
+            fetch_real_data(symbol)
+            if has_symbol(symbol):
+                return "finmind"
+            raise RuntimeError(f"未取得 {symbol} 真實行情，無法產生選股結果。")
+        except Exception as ex:
+            if not config.FALLBACK_TO_SYNTHETIC:
+                raise
+            print(f"[warn] 真實資料抓取失敗({ex}),改用合成資料。")
+    seed_sample_data(symbol)
+    return "synthetic"
+
+
+if __name__ == "__main__":
+    # 簡易自測:抓真實 2330 並印出特徵尾段(失敗自動退回合成)
+    src = ensure_data("2330")
+    print("data source:", src)
+    out = build_features("2330")
+    print(out[config.FEATURE_COLS + ["ret"]].tail())

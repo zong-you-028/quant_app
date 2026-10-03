@@ -96,11 +96,28 @@ def make_model_status_card(result: dict) -> ft.Container:
     return ft.Container(content=ft.Column([
         ft.Text(spec["label"], size=17, weight=ft.FontWeight.BOLD),
         ft.Text(spec.get("description", ""), size=12),
+        ft.Text(_universe_text(result), size=12, color="#455A64"),
         ft.Text(f"驗證狀態：{status}", size=11, color="#1565C0"),
         ft.Text(quality_text, size=12, weight=ft.FontWeight.BOLD,
                 color="#B26A00" if stale else "#455A64"),
     ], spacing=5), bgcolor="#FFF3E0" if stale else "#EAF2F8",
         padding=14, border_radius=14)
+
+
+def _universe_text(result=None) -> str:
+    size = len(config.UNIVERSE)
+    date = getattr(config, "UNIVERSE_ASOF", None)
+    if getattr(config, "UNIVERSE_KIND", "") == "market_cap":
+        markets = getattr(config, "UNIVERSE_MARKETS", {})
+        listed = sum(markets.get(symbol) == "twse" for symbol in config.UNIVERSE)
+        otc = sum(markets.get(symbol) == "tpex" for symbol in config.UNIVERSE)
+        text = (f"選股池：估算市值前 {size} 名（上市 {listed}／上櫃 {otc}）"
+                f" · 名單日 {date}\n按有有效收盤的普通股選池；最多持有 8 檔。"
+                "滿 252 日資料才可排名，成分採固定快照。")
+        if result and "ranking" in result:
+            text += f"\n最近換股日可排名 {len(result['ranking'])}／{size} 檔。"
+        return text
+    return f"選股池：{size} 檔 · 最多持有 8 檔"
 
 
 def _set_button_label(button, label: str) -> None:
@@ -2002,6 +2019,7 @@ def _build_app(page: ft.Page, on_logout=None):
     )
     tab_holdings = ft.Column(
         [ft.Row([scan_btn, update_btn, reconcile_btn], spacing=8, wrap=True),
+         ft.Text(_universe_text(), size=12, color="#455A64"),
          scan_progress, scan_msg, reconciliation_panel, scan_title, usage_guide, scan_panel],
         spacing=16, scroll=_scroll, expand=True,
     )

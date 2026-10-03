@@ -1,0 +1,132 @@
+{
+  "reference_commit": "f49b4cae3c0f5c55acfd609aae5ce7abf6e672a0",
+  "source_identity_is_unmodified": true,
+  "original_archive_unchanged": true,
+  "universe_size": 50,
+  "runtime": {
+    "numpy": "2.2.6",
+    "pandas": "2.3.2",
+    "python": "3.13.14",
+    "python_implementation": "CPython",
+    "sqlite": "3.50.4"
+  },
+  "identity_sha256": "b217ef0a5c6059d35ff9b63d533697562fd5eb7c5a8d8678b74f89993dbb3d3a",
+  "archive_inventory": {
+    "events/000001.json": "644fd487be87763178b90e6175210ef64fdd935939f3c9d48d5e5414268577de",
+    "protocol.json": "e1e80f0f39c55548810172f70c2a242a154e277d0c39e5ae3cad4f7cca134f50",
+    "snapshots/04e831144928c265dacece92f5a93c355c6a8c553f00f0c6ce1a697a72b358b8.json.gz": "15fd8b2cead2b2a2144c17bb4c37312b6867d47a9dd9083050a3a92e789cc75d"
+  },
+  "verify_status": "pinned_archive_verified",
+  "replay_status": "replay_targets_match",
+  "capture_copy_status": "already_sealed",
+  "replay_worker_isolation": {
+    "external_network_attempts": 0,
+    "formal_database_attempts": 0
+  },
+  "capture_copy_current_block_reasons": [],
+  "capture_copy_current_snapshot_changed": false,
+  "old50_continuation_offline": {
+    "current_block_reasons": [],
+    "current_snapshot_changed": false,
+    "data_date": "2026-10-02",
+    "event_count_after": 1,
+    "event_count_before": 1,
+    "event_hash": "95c6f885f329b41175e9142e4dda10e8a299bf1c8dc797e209ac9e208831c5c7",
+    "execution_status": "pending_future_open_quotes",
+    "existing_archive_prefix_unchanged": true,
+    "fills": [],
+    "identity_sha256": "b217ef0a5c6059d35ff9b63d533697562fd5eb7c5a8d8678b74f89993dbb3d3a",
+    "isolation": {
+      "external_network_attempts": 0,
+      "formal_database_attempts": 0,
+      "journal_sql_attempts": 0,
+      "outside_database_attempts": 0
+    },
+    "performance": null,
+    "protocol_hash": "5d2780bb00594ed1cfc65f79d6cd913725bf48d044958fe98041786d6113d66a",
+    "reasons": [],
+    "recorded_at": "2026-10-03T12:58:42.956692+00:00",
+    "reference_commit": "f49b4cae3c0f5c55acfd609aae5ce7abf6e672a0",
+    "refresh_explicitly_enabled": false,
+    "sox_refresh_pending": false,
+    "status": "already_sealed",
+    "universe_size": 50,
+    "unrecorded_dates": [],
+    "update": null,
+    "worker_isolation": {
+      "external_network_attempts": 0,
+      "formal_database_attempts": 0
+    }
+  },
+  "synthetic_empty_event_clone_append": {
+    "current_block_reasons": [],
+    "current_snapshot_changed": false,
+    "data_date": "2026-10-02",
+    "event_count_after": 1,
+    "event_count_before": 0,
+    "event_hash": "b6bc107f27279536c3bc3b9262e9f50184e2135a47e5dd5e8485f3add2754974",
+    "execution_status": "pending_future_open_quotes",
+    "existing_archive_prefix_unchanged": true,
+    "fills": [],
+    "identity_sha256": "b217ef0a5c6059d35ff9b63d533697562fd5eb7c5a8d8678b74f89993dbb3d3a",
+    "isolation": {
+      "external_network_attempts": 0,
+      "formal_database_attempts": 0,
+      "journal_sql_attempts": 0,
+      "outside_database_attempts": 0
+    },
+    "performance": null,
+    "protocol_hash": "5d2780bb00594ed1cfc65f79d6cd913725bf48d044958fe98041786d6113d66a",
+    "reasons": [],
+    "recorded_at": "2026-10-03T16:15:26.255333+00:00",
+    "reference_commit": "f49b4cae3c0f5c55acfd609aae5ce7abf6e672a0",
+    "refresh_explicitly_enabled": false,
+    "sox_refresh_pending": false,
+    "status": "recorded_signal",
+    "universe_size": 50,
+    "unrecorded_dates": [],
+    "update": null,
+    "worker_isolation": {
+      "external_network_attempts": 0,
+      "formal_database_attempts": 0
+    }
+  },
+  "pinned_seed_reproduces_original_public_snapshot": true,
+  "launcher_isolation": {
+    "external_network_attempts": 0,
+    "formal_database_attempts": 0,
+    "journal_sql_attempts": 0
+  },
+  "targets": {
+    "006208_buy_hold": {
+      "006208": 1.0
+    },
+    "buffered_momentum": {
+      "1303": 0.125,
+      "2301": 0.125,
+      "2395": 0.125,
+      "2883": 0.125,
+      "2887": 0.125,
+      "3008": 0.125,
+      "3443": 0.125
+    },
+    "production_common_calendar": {
+      "1301": 0.125,
+      "1303": 0.125,
+      "2301": 0.125,
+      "2357": 0.125,
+      "2395": 0.125,
+      "3008": 0.125,
+      "3017": 0.125
+    }
+  },
+  "fills": [],
+  "performance": null,
+  "notes": [
+    "Git LF/Windows CRLF is restored only when its bytes exactly match the old recorded SHA.",
+    "The original protocol is never edited and identity is computed by the actual unchanged sources.",
+    "Read-only launch capture uses a disposable copy; the separately authorized capture_latest helper only appends to old50.",
+    "The synthetic empty-event clone tests real insertion at the current clock; it is not an actual extra future observation.",
+    "Future new app code/pool changes do not alter this separate f49b4ca source tree."
+  ]
+}

@@ -1,0 +1,278 @@
+{
+  "asof": "2026-10-02",
+  "display_label": "當日有有效收盤報價的上市櫃普通股估算市值前150",
+  "scope": "priced_ordinary",
+  "eligible_count": 1970,
+  "market_counts": {
+    "twse": 1082,
+    "tpex": 888
+  },
+  "selected_market_counts": {
+    "twse": 126,
+    "tpex": 24
+  },
+  "classification_counts": {
+    "twse": 1085,
+    "tpex": 892
+  },
+  "classification_dates": {
+    "twse": "2026-10-04",
+    "tpex": "2026-10-04"
+  },
+  "source_dates": {
+    "twse_close": "2026-10-02",
+    "twse_issued_common_shares": "2026-10-02",
+    "tpex_daily_market_value": "2026-10-02"
+  },
+  "estimated": true,
+  "provisional": true,
+  "source_incomplete": true,
+  "quote_scoped_pool_complete": true,
+  "excluded_unpriced": [
+    {
+      "symbol": "1589",
+      "name": "永冠-KY",
+      "market": "twse",
+      "reason": "No same-day official closing-price/valuation row; trading status not confirmed",
+      "trading_status_confirmed": false
+    },
+    {
+      "symbol": "2323",
+      "name": "中環",
+      "market": "twse",
+      "reason": "No same-day official closing-price/valuation row; trading status not confirmed",
+      "trading_status_confirmed": false
+    },
+    {
+      "symbol": "2601",
+      "name": "益航",
+      "market": "twse",
+      "reason": "No same-day official closing-price/valuation row; trading status not confirmed",
+      "trading_status_confirmed": false
+    },
+    {
+      "symbol": "3085",
+      "name": "新零售",
+      "market": "tpex",
+      "reason": "No same-day official closing-price/valuation row; trading status not confirmed",
+      "trading_status_confirmed": false
+    },
+    {
+      "symbol": "4527",
+      "name": "方土霖",
+      "market": "tpex",
+      "reason": "No same-day official closing-price/valuation row; trading status not confirmed",
+      "trading_status_confirmed": false
+    },
+    {
+      "symbol": "4804",
+      "name": "大略-KY",
+      "market": "tpex",
+      "reason": "No same-day official closing-price/valuation row; trading status not confirmed",
+      "trading_status_confirmed": false
+    },
+    {
+      "symbol": "5301",
+      "name": "寶得利",
+      "market": "tpex",
+      "reason": "No same-day official closing-price/valuation row; trading status not confirmed",
+      "trading_status_confirmed": false
+    }
+  ],
+  "boundary": {
+    "last_selected": {
+      "rank": 150,
+      "symbol": "7610",
+      "name": "聯友金屬-創",
+      "market_cap_ntd": 100576911600.0
+    },
+    "first_excluded": {
+      "rank": 151,
+      "symbol": "6691",
+      "name": "洋基工程",
+      "market_cap_ntd": 98958275130.0
+    },
+    "gap_ntd": 1618636470.0,
+    "gap_pct_of_last_selected": 1.6093519320193563
+  },
+  "unit_checks": {
+    "twse_price_ntd_times_common_shares": 1082,
+    "tpex_market_value_million_ntd_arithmetic": 888,
+    "tpex_tolerance_ntd": 1000000
+  },
+  "twse_published_cap_checks": [
+    {
+      "symbol": "2330",
+      "published_listed_cap_ntd": 64830925000000.0,
+      "issued_common_cap_ntd": 64830925167500.0,
+      "relative_difference": 2.58364353123143e-09,
+      "material_difference": false
+    },
+    {
+      "symbol": "2454",
+      "published_listed_cap_ntd": 7944592000000.0,
+      "issued_common_cap_ntd": 7944515434350.0,
+      "relative_difference": -9.637455265166543e-06,
+      "material_difference": false
+    },
+    {
+      "symbol": "2308",
+      "published_listed_cap_ntd": 4896369000000.0,
+      "issued_common_cap_ntd": 4896369175165.0,
+      "relative_difference": 3.5774468795141866e-08,
+      "material_difference": false
+    },
+    {
+      "symbol": "2317",
+      "published_listed_cap_ntd": 3521191000000.0,
+      "issued_common_cap_ntd": 3533012370747.0,
+      "relative_difference": 0.003357208043244459,
+      "material_difference": false
+    },
+    {
+      "symbol": "3711",
+      "published_listed_cap_ntd": 3187518000000.0,
+      "issued_common_cap_ntd": 3187518037066.0,
+      "relative_difference": 1.1628483352878322e-08,
+      "material_difference": false
+    },
+    {
+      "symbol": "3037",
+      "published_listed_cap_ntd": 2138728000000.0,
+      "issued_common_cap_ntd": 2141885532780.0,
+      "relative_difference": 0.0014763601449085625,
+      "material_difference": false
+    },
+    {
+      "symbol": "2881",
+      "published_listed_cap_ntd": 2108108000000.0,
+      "issued_common_cap_ntd": 2108108425276.0,
+      "relative_difference": 2.0173349752479475e-07,
+      "material_difference": false
+    },
+    {
+      "symbol": "1303",
+      "published_listed_cap_ntd": 2062013000000.0,
+      "issued_common_cap_ntd": 2062013613140.0,
+      "relative_difference": 2.973502106921731e-07,
+      "material_difference": false
+    },
+    {
+      "symbol": "2303",
+      "published_listed_cap_ntd": 2030070000000.0,
+      "issued_common_cap_ntd": 2030070164688.5,
+      "relative_difference": 8.112454250346048e-08,
+      "material_difference": false
+    },
+    {
+      "symbol": "2383",
+      "published_listed_cap_ntd": 1857894000000.0,
+      "issued_common_cap_ntd": 1857894976090.0,
+      "relative_difference": 5.253744293269691e-07,
+      "material_difference": false
+    },
+    {
+      "symbol": "2882",
+      "published_listed_cap_ntd": 1635617000000.0,
+      "issued_common_cap_ntd": 1635616929272.0,
+      "relative_difference": -4.324239721157215e-08,
+      "material_difference": false
+    },
+    {
+      "symbol": "2408",
+      "published_listed_cap_ntd": 1629878000000.0,
+      "issued_common_cap_ntd": 1814808300244.0,
+      "relative_difference": 0.11346266422640222,
+      "material_difference": true
+    },
+    {
+      "symbol": "2382",
+      "published_listed_cap_ntd": 1363732000000.0,
+      "issued_common_cap_ntd": 1363732307424.0,
+      "relative_difference": 2.254284566175759e-07,
+      "material_difference": false
+    },
+    {
+      "symbol": "3017",
+      "published_listed_cap_ntd": 1350348000000.0,
+      "issued_common_cap_ntd": 1350785168080.0,
+      "relative_difference": 0.0003237447532043592,
+      "material_difference": false
+    },
+    {
+      "symbol": "2891",
+      "published_listed_cap_ntd": 1324190000000.0,
+      "issued_common_cap_ntd": 1324190277843.8,
+      "relative_difference": 2.0982170232368466e-07,
+      "material_difference": false
+    },
+    {
+      "symbol": "2327",
+      "published_listed_cap_ntd": 1288765000000.0,
+      "issued_common_cap_ntd": 1288765410688.0,
+      "relative_difference": 3.186678719549336e-07,
+      "material_difference": false
+    },
+    {
+      "symbol": "6669",
+      "published_listed_cap_ntd": 1165794000000.0,
+      "issued_common_cap_ntd": 1168016524620.0,
+      "relative_difference": 0.0019064471253068724,
+      "material_difference": false
+    },
+    {
+      "symbol": "2059",
+      "published_listed_cap_ntd": 1157382000000.0,
+      "issued_common_cap_ntd": 1157382939440.0,
+      "relative_difference": 8.116939783062118e-07,
+      "material_difference": false
+    },
+    {
+      "symbol": "2412",
+      "published_listed_cap_ntd": 1132587000000.0,
+      "issued_common_cap_ntd": 1132587195570.0,
+      "relative_difference": 1.7267547658590466e-07,
+      "material_difference": false
+    }
+  ],
+  "limitations": [
+    "Current membership and current ISIN classification, not historical point-in-time constituents.",
+    "Includes KY and TWSE innovation-board common shares; CFI excludes ETF, preferred shares and TDR.",
+    "TPEx schema does not label MarketValue units; million-NTD scale checked for every ordinary share; ranking uses shares x close.",
+    "TWSE issued-common-share cap includes issued private shares and can differ from published listed-share cap. Home top20 differences are recorded; MI_QFIIS shares can lag stock splits and are not used for ranking."
+  ],
+  "original_50_comparison": {
+    "overlap_count": 47,
+    "added_count": 103,
+    "removed_symbols": [
+      "2105",
+      "2354",
+      "9910"
+    ]
+  },
+  "field_units": {
+    "twse": {
+      "price": "STOCK_DAY_ALL.ClosingPrice: NTD per share",
+      "shares": "t187ap03_L.已發行普通股數或TDR原股發行股數: common shares, including private shares",
+      "cap": "ClosingPrice x issued common shares: estimated NTD cap"
+    },
+    "tpex": {
+      "price": "tpex_daily_market_value.ClosePrice: NTD per share",
+      "shares": "Capitals: issued shares according to official schema",
+      "cap": "ClosePrice x Capitals: estimated NTD cap",
+      "published_market_value": "MarketValue: million NTD scale matches all 888 eligible rows within one million NTD",
+      "unit_evidence_limit": "Official OpenAPI schema calls this field 市值 but does not explicitly label its unit; ranking does not rely on this unlabelled value."
+    },
+    "twse_crosscheck": {
+      "source": "TWSE home values.json ranking.market.AMT",
+      "unit": "hundred million NTD; displayed by official web-home.js",
+      "scope": "Published home top20 only, includes an ETF; 19 common-share checks, not a complete listed-share ranking"
+    }
+  },
+  "documentation": {
+    "twse_schema": "https://openapi.twse.com.tw/v1/swagger.json",
+    "tpex_schema": "https://www.tpex.org.tw/openapi/swagger.json",
+    "twse_home_display": "https://www.twse.com.tw/res/js/web-home.js",
+    "official_classification": "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2"
+  }
+}

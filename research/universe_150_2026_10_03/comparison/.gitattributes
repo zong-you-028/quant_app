@@ -1,0 +1,4 @@
+# Preserve exact bytes of archived source fingerprints used by results.json.
+config_at_comparison.py -text
+strategy_models_at_comparison.py -text
+rotation_at_comparison.py -text

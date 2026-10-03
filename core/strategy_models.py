@@ -31,7 +31,10 @@ def model_spec(mode=None):
     mode = mode or ACTIVE_MODEL_ID
     if mode not in MODEL_SPECS:
         raise ValueError(f"unknown ranking model: {mode}")
-    return mode, dict(MODEL_SPECS[mode])
+    spec = dict(MODEL_SPECS[mode])
+    if mode == ACTIVE_MODEL_ID and getattr(config, "UNIVERSE_KIND", "") == "market_cap":
+        spec["status"] = "估算市值150池試行・過擬合未排除・待前瞻驗證"
+    return mode, spec
 
 
 def active_model_spec():

@@ -23,7 +23,7 @@ import config
 
 _INITIALIZED_PATHS = set()
 _INIT_LOCK = threading.Lock()
-_MARKET_SEED_VERSION = "2026-10-02-v3"
+_MARKET_SEED_VERSION = "2026-10-02-v4-150"
 _FINMIND_BLOCKED_UNTIL = None
 _TWSE_SNAPSHOT_CACHE = None
 _UPDATE_LOCK = threading.Lock()
@@ -181,6 +181,10 @@ def load_ohlcv(symbol: str) -> pd.DataFrame:
         return df
     df["date"] = pd.to_datetime(df["date"])
     df = df.set_index("date").sort_index()
+    listing = getattr(config, "UNIVERSE_LISTING_DATES", {}).get(symbol)
+    if listing:
+        # Also protect old caches that may contain emerging-board history.
+        df = df.loc[df.index >= pd.Timestamp(listing)]
     return df
 
 
@@ -607,8 +611,32 @@ def fetch_twse_latest_data(symbol: str) -> None:
     _merge_twse_prices(symbol, fresh)
 
 
+def _is_tpex(symbol: str) -> bool:
+    """Use the bundled, versioned pool's market; never send OTC to TWSE."""
+    return getattr(config, "UNIVERSE_MARKETS", {}).get(symbol) == "tpex"
+
+
+def fetch_tpex_latest_data(symbol: str) -> None:
+    from core import tpex_prices
+    before = last_ohlcv_date(symbol)
+    expected = _last_trading_day()
+    if before is not None and len(pd.bdate_range(before.normalize(), expected)) > 2:
+        fresh = tpex_prices.recent_prices(symbol, before.normalize() + pd.Timedelta(days=1),
+                                         expected, _request_timeout)
+    else:
+        fresh = tpex_prices.latest_prices(symbol, _request_timeout)
+    if fresh.empty:
+        raise SourceUnavailableError(f"TPEx 查無 {symbol} 有效行情，保留舊資料")
+    if fresh.index.max().normalize() > expected:
+        raise SourceUnavailableError(f"TPEx {symbol} 行情超過已可發布日期，保留舊資料")
+    fresh = fresh.reset_index()
+    fresh["date"] = pd.to_datetime(fresh["date"]).dt.strftime("%Y-%m-%d")
+    fresh.insert(0, "symbol", symbol)
+    _merge_twse_prices(symbol, fresh)
+
+
 def _refresh_market_data(symbol: str) -> None:
-    """Use TWSE for routine refreshes; FinMind is reserved for missing history."""
+    """Use each exchange for routine prices; FinMind supplies history/chips."""
     if has_symbol(symbol):
         latest = (last_ohlcv_date(symbol)
                   if getattr(_UPDATE_CONTEXT, "deadline", None) is not None else None)
@@ -616,7 +644,10 @@ def _refresh_market_data(symbol: str) -> None:
         if (getattr(_UPDATE_CONTEXT, "force", False) or latest is None
                 or latest.normalize() < _last_trading_day()):
             _update_phase(symbol, "更新行情")
-            fetch_twse_latest_data(symbol)
+            if _is_tpex(symbol):
+                fetch_tpex_latest_data(symbol)
+            else:
+                fetch_twse_latest_data(symbol)
     else:
         fetch_real_data(symbol)
     if chip_needs_update(symbol):
@@ -721,6 +752,9 @@ def fetch_real_data(symbol: str, start: str = None) -> None:
     try:
         px = _finmind_get("TaiwanStockPrice", symbol, start)
     except FinMindBlockedError:
+        if _is_tpex(symbol):
+            # A few recent bars cannot replace a missing 252-day history.
+            raise SourceUnavailableError(f"{symbol} 上櫃完整歷史暫無法下載，請稍後續抓")
         fetch_twse_recent_data(symbol)
         return
     if px.empty:
@@ -731,6 +765,11 @@ def fetch_real_data(symbol: str, start: str = None) -> None:
         "open": px["open"], "high": px["max"], "low": px["min"],
         "close": px["close"], "volume": px["Trading_Volume"],
     })
+    listing = getattr(config, "UNIVERSE_LISTING_DATES", {}).get(symbol)
+    if listing:
+        ohlcv = ohlcv.loc[pd.to_datetime(ohlcv["date"]) >= pd.Timestamp(listing)]
+    if ohlcv.empty:
+        raise SourceUnavailableError(f"{symbol} 查無掛牌後有效行情，保留舊資料")
     # 還原股價:清理壞列 + 回溯還原除權息/分割/減資跳空(免費版無還原股價,故自行處理)
     ohlcv = _adjust_corporate_actions(ohlcv)
 
@@ -1007,6 +1046,8 @@ def _update_symbols(symbols, force=False, ignore_throttle=False,
             # Retry with fresh market data, not the same stale five-minute cache.
             # All symbols in this pass still share a single successful download.
             _TWSE_SNAPSHOT_CACHE = None
+            from core import tpex_prices
+            tpex_prices.clear_cache()
             for symbol in pending:
                 if symbol not in res["retried_symbols"]:
                     res["retried_symbols"].append(symbol)

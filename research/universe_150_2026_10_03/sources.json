@@ -1,0 +1,65 @@
+{
+  "twse_closes": {
+    "url": "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+    "retrieved_at": "2026-10-03T16:00:51.236702+00:00",
+    "sha256": "fd632f1ec3058e354d8d9d319cec8a683e2efb82a26338d6a3d0ffbdd5e4319d",
+    "bytes": 319619,
+    "encoding": "utf-8",
+    "last_modified": "Fri, 02 Oct 2026 21:20:43 GMT",
+    "raw_file": "official_raw/twse_closes.gz"
+  },
+  "twse_shares": {
+    "url": "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
+    "retrieved_at": "2026-10-03T16:07:18.325920+00:00",
+    "sha256": "9f8d5ec72152c480d08a0376c22f580344427c7990d23047be998e8d5b5f5198",
+    "bytes": 1327571,
+    "encoding": "utf-8",
+    "last_modified": "Fri, 02 Oct 2026 21:24:33 GMT",
+    "raw_file": "official_raw/twse_shares.gz"
+  },
+  "tpex_values": {
+    "url": "https://www.tpex.org.tw/openapi/v1/tpex_daily_market_value",
+    "retrieved_at": "2026-10-03T16:00:51.311818+00:00",
+    "sha256": "85f2c4f6ff8faca6ba22d01589ac4cc4314b18b2c780959214d2ada22556ed4d",
+    "bytes": 137478,
+    "encoding": "utf-8",
+    "last_modified": "Sat, 03 Oct 2026 15:30:21 GMT",
+    "raw_file": "official_raw/tpex_values.gz"
+  },
+  "twse_isin": {
+    "url": "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2",
+    "retrieved_at": "2026-10-03T16:00:54.280885+00:00",
+    "sha256": "299102841f178664244f92280b2404699ccd60e2a361ee90ee864ed0ac52adc1",
+    "bytes": 8853976,
+    "encoding": "cp950",
+    "last_modified": null,
+    "raw_file": "official_raw/twse_isin.gz"
+  },
+  "tpex_isin": {
+    "url": "https://isin.twse.com.tw/isin/C_public.jsp?strMode=4",
+    "retrieved_at": "2026-10-03T16:00:52.712365+00:00",
+    "sha256": "821a4dc8f06c4e7ca37c95e53a1b2cf1d4699fdd324b8381d347037d243a45ef",
+    "bytes": 2953029,
+    "encoding": "cp950",
+    "last_modified": null,
+    "raw_file": "official_raw/tpex_isin.gz"
+  },
+  "twse_cap_check": {
+    "url": "https://www.twse.com.tw/res/data/zh/home/values.json",
+    "retrieved_at": "2026-10-03T16:00:51.319739+00:00",
+    "sha256": "200267df1bf2313c4b07d31e1d1931231ba3208c699fbbbb41c8bfc8473ea37b",
+    "bytes": 21008,
+    "encoding": "utf-8",
+    "last_modified": "Sat, 03 Oct 2026 16:00:08 GMT",
+    "raw_file": "official_raw/twse_cap_check.gz"
+  },
+  "twse_shareholding_check": {
+    "url": "https://www.twse.com.tw/rwd/zh/fund/MI_QFIIS?date=20261002&selectType=ALLBUT0999&response=json",
+    "retrieved_at": "2026-10-03T16:00:51.217469+00:00",
+    "sha256": "b174e3cd6ab8d4310e31071ba21f7da56855c8afb8e177ea8e5dd2fd84fbbb0c",
+    "bytes": 167564,
+    "encoding": "utf-8",
+    "last_modified": null,
+    "raw_file": "official_raw/twse_shareholding_check.gz"
+  }
+}

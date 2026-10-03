@@ -1,0 +1,3456 @@
+{
+  "status": "retrospective_completed",
+  "research_only": true,
+  "strategy_parameters_changed": false,
+  "app_config_changed": false,
+  "ranking_asof": "2026-10-02",
+  "price_asof": "2026-10-02",
+  "ranking_source_metadata": {
+    "schema_version": 1,
+    "asof": "2026-10-02",
+    "top_n": 150,
+    "ranking_basis": "ordinary-share closing price (NTD) x issued common shares (TWSE MOPS) / Capitals (TPEx)",
+    "eligible_count": 1970,
+    "market_counts": {
+      "twse": 1082,
+      "tpex": 888
+    },
+    "selected_market_counts": {
+      "twse": 126,
+      "tpex": 24
+    },
+    "classification_dates": {
+      "twse": "2026-10-04",
+      "tpex": "2026-10-04"
+    },
+    "twse_published_cap_checks": [
+      {
+        "symbol": "2330",
+        "published_listed_cap_ntd": 64830925000000.0,
+        "issued_common_cap_ntd": 64830925167500.0,
+        "relative_difference": 2.58364353123143e-09,
+        "material_difference": false
+      },
+      {
+        "symbol": "2454",
+        "published_listed_cap_ntd": 7944592000000.0,
+        "issued_common_cap_ntd": 7944515434350.0,
+        "relative_difference": -9.637455265166543e-06,
+        "material_difference": false
+      },
+      {
+        "symbol": "2308",
+        "published_listed_cap_ntd": 4896369000000.0,
+        "issued_common_cap_ntd": 4896369175165.0,
+        "relative_difference": 3.5774468795141866e-08,
+        "material_difference": false
+      },
+      {
+        "symbol": "2317",
+        "published_listed_cap_ntd": 3521191000000.0,
+        "issued_common_cap_ntd": 3533012370747.0,
+        "relative_difference": 0.003357208043244459,
+        "material_difference": false
+      },
+      {
+        "symbol": "3711",
+        "published_listed_cap_ntd": 3187518000000.0,
+        "issued_common_cap_ntd": 3187518037066.0,
+        "relative_difference": 1.1628483352878322e-08,
+        "material_difference": false
+      },
+      {
+        "symbol": "3037",
+        "published_listed_cap_ntd": 2138728000000.0,
+        "issued_common_cap_ntd": 2141885532780.0,
+        "relative_difference": 0.0014763601449085625,
+        "material_difference": false
+      },
+      {
+        "symbol": "2881",
+        "published_listed_cap_ntd": 2108108000000.0,
+        "issued_common_cap_ntd": 2108108425276.0,
+        "relative_difference": 2.0173349752479475e-07,
+        "material_difference": false
+      },
+      {
+        "symbol": "1303",
+        "published_listed_cap_ntd": 2062013000000.0,
+        "issued_common_cap_ntd": 2062013613140.0,
+        "relative_difference": 2.973502106921731e-07,
+        "material_difference": false
+      },
+      {
+        "symbol": "2303",
+        "published_listed_cap_ntd": 2030070000000.0,
+        "issued_common_cap_ntd": 2030070164688.5,
+        "relative_difference": 8.112454250346048e-08,
+        "material_difference": false
+      },
+      {
+        "symbol": "2383",
+        "published_listed_cap_ntd": 1857894000000.0,
+        "issued_common_cap_ntd": 1857894976090.0,
+        "relative_difference": 5.253744293269691e-07,
+        "material_difference": false
+      },
+      {
+        "symbol": "2882",
+        "published_listed_cap_ntd": 1635617000000.0,
+        "issued_common_cap_ntd": 1635616929272.0,
+        "relative_difference": -4.324239721157215e-08,
+        "material_difference": false
+      },
+      {
+        "symbol": "2408",
+        "published_listed_cap_ntd": 1629878000000.0,
+        "issued_common_cap_ntd": 1814808300244.0,
+        "relative_difference": 0.11346266422640222,
+        "material_difference": true
+      },
+      {
+        "symbol": "2382",
+        "published_listed_cap_ntd": 1363732000000.0,
+        "issued_common_cap_ntd": 1363732307424.0,
+        "relative_difference": 2.254284566175759e-07,
+        "material_difference": false
+      },
+      {
+        "symbol": "3017",
+        "published_listed_cap_ntd": 1350348000000.0,
+        "issued_common_cap_ntd": 1350785168080.0,
+        "relative_difference": 0.0003237447532043592,
+        "material_difference": false
+      },
+      {
+        "symbol": "2891",
+        "published_listed_cap_ntd": 1324190000000.0,
+        "issued_common_cap_ntd": 1324190277843.8,
+        "relative_difference": 2.0982170232368466e-07,
+        "material_difference": false
+      },
+      {
+        "symbol": "2327",
+        "published_listed_cap_ntd": 1288765000000.0,
+        "issued_common_cap_ntd": 1288765410688.0,
+        "relative_difference": 3.186678719549336e-07,
+        "material_difference": false
+      },
+      {
+        "symbol": "6669",
+        "published_listed_cap_ntd": 1165794000000.0,
+        "issued_common_cap_ntd": 1168016524620.0,
+        "relative_difference": 0.0019064471253068724,
+        "material_difference": false
+      },
+      {
+        "symbol": "2059",
+        "published_listed_cap_ntd": 1157382000000.0,
+        "issued_common_cap_ntd": 1157382939440.0,
+        "relative_difference": 8.116939783062118e-07,
+        "material_difference": false
+      },
+      {
+        "symbol": "2412",
+        "published_listed_cap_ntd": 1132587000000.0,
+        "issued_common_cap_ntd": 1132587195570.0,
+        "relative_difference": 1.7267547658590466e-07,
+        "material_difference": false
+      }
+    ],
+    "source_incomplete": true,
+    "excluded_unpriced": [
+      {
+        "symbol": "1589",
+        "market": "twse",
+        "reason": "No same-day official valuation; trading status not yet confirmed"
+      },
+      {
+        "symbol": "2323",
+        "market": "twse",
+        "reason": "No same-day official valuation; trading status not yet confirmed"
+      },
+      {
+        "symbol": "2601",
+        "market": "twse",
+        "reason": "No same-day official valuation; trading status not yet confirmed"
+      },
+      {
+        "symbol": "3085",
+        "market": "tpex",
+        "reason": "No same-day official valuation; trading status not yet confirmed"
+      },
+      {
+        "symbol": "4527",
+        "market": "tpex",
+        "reason": "No same-day official valuation; trading status not yet confirmed"
+      },
+      {
+        "symbol": "4804",
+        "market": "tpex",
+        "reason": "No same-day official valuation; trading status not yet confirmed"
+      },
+      {
+        "symbol": "5301",
+        "market": "tpex",
+        "reason": "No same-day official valuation; trading status not yet confirmed"
+      }
+    ],
+    "ranking_scope": "same-day priced TWSE/TPEx classified ordinary shares",
+    "provisional": true,
+    "limitations": [
+      "Current membership and current ISIN classification, not historical point-in-time constituents.",
+      "Includes KY and TWSE innovation-board common shares; CFI excludes ETF, preferred shares and TDR.",
+      "TPEx schema does not label MarketValue units; million-NTD scale checked for every ordinary share; ranking uses shares x close.",
+      "TWSE issued-common-share cap can differ from published listed-share cap. Home top20 differences are recorded; MI_QFIIS shares can lag stock splits and are not used for ranking."
+    ],
+    "sources": {
+      "twse_closes": {
+        "url": "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+        "retrieved_at": "2026-10-03T16:00:51.236702+00:00",
+        "sha256": "fd632f1ec3058e354d8d9d319cec8a683e2efb82a26338d6a3d0ffbdd5e4319d",
+        "bytes": 319619,
+        "encoding": "utf-8",
+        "last_modified": "Fri, 02 Oct 2026 21:20:43 GMT",
+        "raw_file": "official_raw/twse_closes.gz"
+      },
+      "twse_shares": {
+        "url": "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
+        "retrieved_at": "2026-10-03T16:07:18.325920+00:00",
+        "sha256": "9f8d5ec72152c480d08a0376c22f580344427c7990d23047be998e8d5b5f5198",
+        "bytes": 1327571,
+        "encoding": "utf-8",
+        "last_modified": "Fri, 02 Oct 2026 21:24:33 GMT",
+        "raw_file": "official_raw/twse_shares.gz"
+      },
+      "tpex_values": {
+        "url": "https://www.tpex.org.tw/openapi/v1/tpex_daily_market_value",
+        "retrieved_at": "2026-10-03T16:00:51.311818+00:00",
+        "sha256": "85f2c4f6ff8faca6ba22d01589ac4cc4314b18b2c780959214d2ada22556ed4d",
+        "bytes": 137478,
+        "encoding": "utf-8",
+        "last_modified": "Sat, 03 Oct 2026 15:30:21 GMT",
+        "raw_file": "official_raw/tpex_values.gz"
+      },
+      "twse_isin": {
+        "url": "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2",
+        "retrieved_at": "2026-10-03T16:00:54.280885+00:00",
+        "sha256": "299102841f178664244f92280b2404699ccd60e2a361ee90ee864ed0ac52adc1",
+        "bytes": 8853976,
+        "encoding": "cp950",
+        "last_modified": null,
+        "raw_file": "official_raw/twse_isin.gz"
+      },
+      "tpex_isin": {
+        "url": "https://isin.twse.com.tw/isin/C_public.jsp?strMode=4",
+        "retrieved_at": "2026-10-03T16:00:52.712365+00:00",
+        "sha256": "821a4dc8f06c4e7ca37c95e53a1b2cf1d4699fdd324b8381d347037d243a45ef",
+        "bytes": 2953029,
+        "encoding": "cp950",
+        "last_modified": null,
+        "raw_file": "official_raw/tpex_isin.gz"
+      },
+      "twse_cap_check": {
+        "url": "https://www.twse.com.tw/res/data/zh/home/values.json",
+        "retrieved_at": "2026-10-03T16:00:51.319739+00:00",
+        "sha256": "200267df1bf2313c4b07d31e1d1931231ba3208c699fbbbb41c8bfc8473ea37b",
+        "bytes": 21008,
+        "encoding": "utf-8",
+        "last_modified": "Sat, 03 Oct 2026 16:00:08 GMT",
+        "raw_file": "official_raw/twse_cap_check.gz"
+      },
+      "twse_shareholding_check": {
+        "url": "https://www.twse.com.tw/rwd/zh/fund/MI_QFIIS?date=20261002&selectType=ALLBUT0999&response=json",
+        "retrieved_at": "2026-10-03T16:00:51.217469+00:00",
+        "sha256": "b174e3cd6ab8d4310e31071ba21f7da56855c8afb8e177ea8e5dd2fd84fbbb0c",
+        "bytes": 167564,
+        "encoding": "utf-8",
+        "last_modified": null,
+        "raw_file": "official_raw/twse_shareholding_check.gz"
+      }
+    }
+  },
+  "universes": {
+    "fixed_50": [
+      "2330",
+      "2317",
+      "2454",
+      "2308",
+      "2303",
+      "2412",
+      "2882",
+      "2881",
+      "1301",
+      "2603",
+      "2891",
+      "3711",
+      "2002",
+      "2886",
+      "2884",
+      "1303",
+      "2327",
+      "2357",
+      "3008",
+      "2382",
+      "2395",
+      "5871",
+      "2880",
+      "2892",
+      "2885",
+      "1216",
+      "2207",
+      "2379",
+      "3045",
+      "2912",
+      "1101",
+      "2887",
+      "4938",
+      "5880",
+      "2883",
+      "2890",
+      "2345",
+      "3037",
+      "2301",
+      "3034",
+      "2105",
+      "9910",
+      "2474",
+      "1402",
+      "2409",
+      "2354",
+      "2360",
+      "6505",
+      "3443",
+      "3017"
+    ],
+    "market_cap_150": [
+      "2330",
+      "2454",
+      "2308",
+      "2317",
+      "3711",
+      "3037",
+      "2881",
+      "1303",
+      "2303",
+      "2383",
+      "2408",
+      "2882",
+      "2382",
+      "3017",
+      "2891",
+      "2327",
+      "6669",
+      "2059",
+      "2412",
+      "2345",
+      "3443",
+      "2887",
+      "7769",
+      "3653",
+      "6505",
+      "8046",
+      "2360",
+      "2885",
+      "3008",
+      "2344",
+      "2884",
+      "5274",
+      "2886",
+      "2357",
+      "2301",
+      "2890",
+      "4958",
+      "2883",
+      "2880",
+      "2395",
+      "3231",
+      "2368",
+      "6488",
+      "2892",
+      "3189",
+      "6223",
+      "2603",
+      "3665",
+      "6446",
+      "6274",
+      "8299",
+      "3045",
+      "1301",
+      "3481",
+      "5880",
+      "1326",
+      "1216",
+      "2379",
+      "4904",
+      "2449",
+      "6770",
+      "5347",
+      "2801",
+      "3661",
+      "3034",
+      "2615",
+      "2409",
+      "2002",
+      "3081",
+      "2207",
+      "3044",
+      "2313",
+      "3036",
+      "3105",
+      "2376",
+      "6213",
+      "2404",
+      "2337",
+      "1519",
+      "5876",
+      "4938",
+      "3529",
+      "1590",
+      "6239",
+      "2618",
+      "3293",
+      "6515",
+      "2912",
+      "2356",
+      "3533",
+      "2609",
+      "3702",
+      "1101",
+      "5871",
+      "3532",
+      "6139",
+      "2834",
+      "2492",
+      "1802",
+      "1605",
+      "6147",
+      "6415",
+      "8069",
+      "1504",
+      "6531",
+      "2347",
+      "2324",
+      "6805",
+      "6789",
+      "1560",
+      "1402",
+      "2633",
+      "5483",
+      "8996",
+      "3324",
+      "6526",
+      "3026",
+      "7856",
+      "3260",
+      "6196",
+      "7750",
+      "6187",
+      "6442",
+      "8358",
+      "2377",
+      "5289",
+      "3374",
+      "1102",
+      "2451",
+      "2610",
+      "6257",
+      "6919",
+      "2027",
+      "2812",
+      "3264",
+      "5536",
+      "2049",
+      "6285",
+      "5434",
+      "2474",
+      "2455",
+      "3406",
+      "5269",
+      "3706",
+      "8464",
+      "8210",
+      "1503",
+      "3491",
+      "6510",
+      "7610"
+    ]
+  },
+  "coverage": {
+    "fixed_50": {
+      "declared_symbols": 50,
+      "prices_present": 50,
+      "chips_present": 50,
+      "latest_rank_qualified_count": 48,
+      "latest_rank_qualified_symbols": [
+        "2330",
+        "2317",
+        "2454",
+        "2308",
+        "2303",
+        "2412",
+        "2882",
+        "2881",
+        "1301",
+        "2603",
+        "2891",
+        "3711",
+        "2002",
+        "2886",
+        "1303",
+        "2327",
+        "2357",
+        "3008",
+        "2382",
+        "2395",
+        "5871",
+        "2880",
+        "2892",
+        "2885",
+        "1216",
+        "2379",
+        "3045",
+        "2912",
+        "1101",
+        "2887",
+        "4938",
+        "5880",
+        "2883",
+        "2890",
+        "2345",
+        "3037",
+        "2301",
+        "3034",
+        "2105",
+        "9910",
+        "2474",
+        "1402",
+        "2409",
+        "2354",
+        "2360",
+        "6505",
+        "3443",
+        "3017"
+      ],
+      "missing_prices": [],
+      "short_price_history_below_252": [],
+      "stale_prices": [],
+      "missing_chips": [],
+      "chip_reader_warmup_below_61": [],
+      "stale_chips": [],
+      "complete_source_coverage": true,
+      "symbols": {
+        "2330": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2317": {
+          "price_observations": 2855,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2454": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2308": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2303": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2412": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2882": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2881": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1301": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2603": {
+          "price_observations": 2856,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2891": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3711": {
+          "price_observations": 2054,
+          "price_start": "2018-04-30",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2055,
+          "chip_start": "2018-04-27",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2002": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2886": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2884": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1303": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2327": {
+          "price_observations": 2828,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2357": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3008": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2382": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2395": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5871": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2880": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2892": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2885": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1216": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2207": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2379": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3045": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2912": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1101": {
+          "price_observations": 2860,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2887": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "4938": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5880": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2883": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2890": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2345": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3037": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2301": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3034": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2105": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "9910": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2474": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1402": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2409": {
+          "price_observations": 2856,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2354": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2360": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6505": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3443": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3017": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        }
+      }
+    },
+    "market_cap_150": {
+      "declared_symbols": 150,
+      "prices_present": 150,
+      "chips_present": 150,
+      "latest_rank_qualified_count": 142,
+      "latest_rank_qualified_symbols": [
+        "2330",
+        "2454",
+        "2308",
+        "2317",
+        "3711",
+        "3037",
+        "2881",
+        "1303",
+        "2303",
+        "2383",
+        "2408",
+        "2882",
+        "2382",
+        "3017",
+        "2891",
+        "2327",
+        "6669",
+        "2059",
+        "2412",
+        "2345",
+        "3443",
+        "2887",
+        "3653",
+        "6505",
+        "8046",
+        "2360",
+        "2885",
+        "3008",
+        "2344",
+        "5274",
+        "2886",
+        "2357",
+        "2301",
+        "2890",
+        "4958",
+        "2883",
+        "2880",
+        "2395",
+        "3231",
+        "2368",
+        "6488",
+        "2892",
+        "3189",
+        "6223",
+        "2603",
+        "6446",
+        "6274",
+        "8299",
+        "3045",
+        "1301",
+        "3481",
+        "5880",
+        "1326",
+        "1216",
+        "2379",
+        "4904",
+        "2449",
+        "6770",
+        "5347",
+        "2801",
+        "3661",
+        "3034",
+        "2615",
+        "2409",
+        "2002",
+        "3081",
+        "3044",
+        "2313",
+        "3036",
+        "3105",
+        "2376",
+        "6213",
+        "2404",
+        "2337",
+        "1519",
+        "5876",
+        "4938",
+        "3529",
+        "1590",
+        "6239",
+        "2618",
+        "3293",
+        "6515",
+        "2912",
+        "2356",
+        "3533",
+        "2609",
+        "3702",
+        "1101",
+        "5871",
+        "3532",
+        "6139",
+        "2834",
+        "2492",
+        "1802",
+        "1605",
+        "6147",
+        "6415",
+        "8069",
+        "1504",
+        "6531",
+        "2347",
+        "2324",
+        "6805",
+        "6789",
+        "1560",
+        "1402",
+        "2633",
+        "5483",
+        "8996",
+        "3324",
+        "6526",
+        "3026",
+        "6196",
+        "6187",
+        "6442",
+        "8358",
+        "2377",
+        "5289",
+        "3374",
+        "1102",
+        "2451",
+        "2610",
+        "6257",
+        "6919",
+        "2027",
+        "2812",
+        "3264",
+        "5536",
+        "2049",
+        "6285",
+        "5434",
+        "2474",
+        "2455",
+        "3406",
+        "5269",
+        "3706",
+        "8464",
+        "8210",
+        "1503",
+        "6510",
+        "7610"
+      ],
+      "missing_prices": [],
+      "short_price_history_below_252": [
+        "7769",
+        "7856"
+      ],
+      "stale_prices": [],
+      "missing_chips": [],
+      "chip_reader_warmup_below_61": [
+        "7856"
+      ],
+      "stale_chips": [],
+      "complete_source_coverage": true,
+      "symbols": {
+        "2330": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2454": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2308": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2317": {
+          "price_observations": 2855,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3711": {
+          "price_observations": 2054,
+          "price_start": "2018-04-30",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2055,
+          "chip_start": "2018-04-27",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3037": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2881": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1303": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2303": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2383": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2408": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2882": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2382": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3017": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2891": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2327": {
+          "price_observations": 2828,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6669": {
+          "price_observations": 1831,
+          "price_start": "2019-03-27",
+          "price_asof": "2026-10-02",
+          "chip_observations": 1831,
+          "chip_start": "2019-03-26",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2059": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2412": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2345": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3443": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2887": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "7769": {
+          "price_observations": 205,
+          "price_start": "2025-11-27",
+          "price_asof": "2026-10-02",
+          "chip_observations": 205,
+          "chip_start": "2025-11-26",
+          "chip_asof": "2026-10-02",
+          "short_price_history": true,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3653": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6505": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "8046": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2360": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2885": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3008": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2344": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2884": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5274": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2886": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2357": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2301": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2890": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "4958": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2883": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2880": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2395": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3231": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2368": {
+          "price_observations": 2856,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6488": {
+          "price_observations": 2685,
+          "price_start": "2015-09-25",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2687,
+          "chip_start": "2015-09-24",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2892": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3189": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6223": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2603": {
+          "price_observations": 2856,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3665": {
+          "price_observations": 2861,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6446": {
+          "price_observations": 649,
+          "price_start": "2024-01-25",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2490,
+          "chip_start": "2016-07-18",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6274": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "8299": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3045": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1301": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3481": {
+          "price_observations": 2842,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5880": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1326": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1216": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2379": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "4904": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2449": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6770": {
+          "price_observations": 1170,
+          "price_start": "2021-12-06",
+          "price_asof": "2026-10-02",
+          "chip_observations": 1170,
+          "chip_start": "2021-12-03",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5347": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2801": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3661": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3034": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2615": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2409": {
+          "price_observations": 2856,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2002": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3081": {
+          "price_observations": 2733,
+          "price_start": "2015-07-22",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2734,
+          "chip_start": "2015-07-21",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2207": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3044": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2313": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3036": {
+          "price_observations": 2858,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3105": {
+          "price_observations": 2847,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2376": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6213": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2404": {
+          "price_observations": 2856,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2337": {
+          "price_observations": 2854,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1519": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5876": {
+          "price_observations": 1934,
+          "price_start": "2018-10-19",
+          "price_asof": "2026-10-02",
+          "chip_observations": 1935,
+          "chip_start": "2018-10-18",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "4938": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3529": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1590": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6239": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2618": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3293": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6515": {
+          "price_observations": 1383,
+          "price_start": "2021-01-20",
+          "price_asof": "2026-10-02",
+          "chip_observations": 1383,
+          "chip_start": "2021-01-19",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2912": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2356": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3533": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2609": {
+          "price_observations": 2854,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3702": {
+          "price_observations": 2856,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1101": {
+          "price_observations": 2860,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5871": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3532": {
+          "price_observations": 2856,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6139": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2834": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2492": {
+          "price_observations": 2841,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1802": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1605": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6147": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6415": {
+          "price_observations": 2858,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "8069": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1504": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6531": {
+          "price_observations": 2515,
+          "price_start": "2016-05-31",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2523,
+          "chip_start": "2016-05-30",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2347": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2324": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6805": {
+          "price_observations": 703,
+          "price_start": "2023-11-09",
+          "price_asof": "2026-10-02",
+          "chip_observations": 703,
+          "chip_start": "2023-11-08",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6789": {
+          "price_observations": 1035,
+          "price_start": "2022-06-30",
+          "price_asof": "2026-10-02",
+          "chip_observations": 1035,
+          "chip_start": "2022-06-29",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1560": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1402": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2633": {
+          "price_observations": 2422,
+          "price_start": "2016-10-27",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2423,
+          "chip_start": "2016-10-26",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5483": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "8996": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3324": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6526": {
+          "price_observations": 718,
+          "price_start": "2023-10-19",
+          "price_asof": "2026-10-02",
+          "chip_observations": 718,
+          "chip_start": "2023-10-18",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3026": {
+          "price_observations": 2856,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "7856": {
+          "price_observations": 6,
+          "price_start": "2026-09-23",
+          "price_asof": "2026-10-02",
+          "chip_observations": 8,
+          "chip_start": "2026-09-21",
+          "chip_asof": "2026-10-02",
+          "short_price_history": true,
+          "below_app_80_price_reader_threshold": true
+        },
+        "3260": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6196": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "7750": {
+          "price_observations": 252,
+          "price_start": "2025-09-17",
+          "price_asof": "2026-10-02",
+          "chip_observations": 252,
+          "chip_start": "2025-09-16",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6187": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6442": {
+          "price_observations": 2719,
+          "price_start": "2015-07-14",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2739,
+          "chip_start": "2015-07-13",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "8358": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2377": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5289": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3374": {
+          "price_observations": 2810,
+          "price_start": "2015-03-30",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2811,
+          "chip_start": "2015-03-27",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1102": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2451": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2610": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6257": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6919": {
+          "price_observations": 480,
+          "price_start": "2024-10-04",
+          "price_asof": "2026-10-02",
+          "chip_observations": 485,
+          "chip_start": "2024-10-01",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2027": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2812": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3264": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5536": {
+          "price_observations": 2856,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2049": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6285": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5434": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2474": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "2455": {
+          "price_observations": 2857,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3406": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "5269": {
+          "price_observations": 2862,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3706": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "8464": {
+          "price_observations": 2627,
+          "price_start": "2015-12-22",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2627,
+          "chip_start": "2015-12-21",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "8210": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2862,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "1503": {
+          "price_observations": 2863,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "3491": {
+          "price_observations": 2861,
+          "price_start": "2015-01-05",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2863,
+          "chip_start": "2015-01-05",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "6510": {
+          "price_observations": 2568,
+          "price_start": "2016-03-24",
+          "price_asof": "2026-10-02",
+          "chip_observations": 2569,
+          "chip_start": "2016-03-23",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        },
+        "7610": {
+          "price_observations": 258,
+          "price_start": "2025-09-09",
+          "price_asof": "2026-10-02",
+          "chip_observations": 363,
+          "chip_start": "2022-09-29",
+          "chip_asof": "2026-10-02",
+          "short_price_history": false,
+          "below_app_80_price_reader_threshold": false
+        }
+      }
+    }
+  },
+  "sources": {
+    "research_database": {
+      "path": "D:\\quant_app\\data\\universe_150_research\\market.db",
+      "sha256": "163651cef055be9c45cbfb71a8416990e214210e6daf9385e5a50e322e0332f0"
+    },
+    "sox": {
+      "path": "D:\\quant_app\\data\\universe_150_research\\sox.csv",
+      "sha256": "34b60536b83c11d73a331495881630e7367d8b97bd4010feb4bf43d62a6b9232"
+    },
+    "ranking": {
+      "path": "D:\\quant_app\\research\\universe_150_2026_10_03\\candidate_150.json",
+      "sha256": "6026a0c819a8b9a7493366b624cca5162903cc1bd39e1d72ac949f9e31585843"
+    },
+    "acquisition_manifest": {
+      "path": "D:\\quant_app\\data\\universe_150_research\\acquisition.json",
+      "sha256": "6671c5fba45f2a8c5ae979343669897da483b4b13d46c11421d81c27b24e22fb"
+    }
+  },
+  "code_sha256": {
+    "research\\universe_150_2026_10_03\\compare_universes.py": "135dfc935882c9a1ae76fc0ed0e1bb50a6cbbb634403bfed678b7372eca8e434",
+    "config.py": "08d906895ee2616d1fdb5ead332c4929a4afd4b62b18844736269db34dd21e7c",
+    "core\\rotation.py": "711da64cab207c5bc6a224c2de4d2ce3a9d900e5aab9462c05c8e7cebb8795fe",
+    "core\\strategy_models.py": "11d1beae60bf0dc97d669c92beb5135d8c48035c5ac329efd080d3220dcc6811",
+    "core\\robustness_audit.py": "e86c18f526420ba7979a85deb12137952fdd4399926cf5c6e93ad12a19cc8318",
+    "core\\execution.py": "d22e81e5d788e840596f1a4f2e80d304a4c29bdb7a258704ed3fb8bfd2df3a2b",
+    "core\\chip_data.py": "da8daa83dc3f1099c865a91d75d21117fa65da67de579e94441b5c403050e12b",
+    "core\\market_regime.py": "6af06cac6dda9bbff81eaeb9287e4b9c7e433ff5b49a76032b683060dfe1ce20",
+    "core\\overfitting_audit.py": "1a862601a4780b6a554f506e2212876a3894e8be034b6a7814ad57f6c125450e"
+  },
+  "acquisition_provenance": {
+    "asof": "2026-10-02",
+    "ranking_sha256": "6026a0c819a8b9a7493366b624cca5162903cc1bd39e1d72ac949f9e31585843",
+    "base_seed_sha256": "e7a542e10d1c9ba4958fa7251344e59a8bcf17f7410ded7465e713f43167faa9",
+    "price_convention": "existing app jump heuristic, NOT verified total return",
+    "observed_at_utc": "2026-10-03T16:14:07.240487+00:00",
+    "listing_floor_filter": {
+      "rule": "prices >= official current-market ISIN listing date; conservative exclusion of earlier OTC transfers too",
+      "trimmed_this_run": {
+        "6669": {
+          "removed_price_rows": 333,
+          "first_current_market_listing": "2019-03-27"
+        },
+        "7769": {
+          "removed_price_rows": 262,
+          "first_current_market_listing": "2025-11-27"
+        },
+        "6488": {
+          "removed_price_rows": 177,
+          "first_current_market_listing": "2015-09-25"
+        },
+        "6446": {
+          "removed_price_rows": 2213,
+          "first_current_market_listing": "2024-01-25"
+        },
+        "6770": {
+          "removed_price_rows": 242,
+          "first_current_market_listing": "2021-12-06"
+        },
+        "3081": {
+          "removed_price_rows": 130,
+          "first_current_market_listing": "2015-07-22"
+        },
+        "5876": {
+          "removed_price_rows": 929,
+          "first_current_market_listing": "2018-10-19"
+        },
+        "6515": {
+          "removed_price_rows": 288,
+          "first_current_market_listing": "2021-01-20"
+        },
+        "6531": {
+          "removed_price_rows": 235,
+          "first_current_market_listing": "2016-05-31"
+        },
+        "6805": {
+          "removed_price_rows": 722,
+          "first_current_market_listing": "2023-11-09"
+        },
+        "6789": {
+          "removed_price_rows": 304,
+          "first_current_market_listing": "2022-06-30"
+        },
+        "2633": {
+          "removed_price_rows": 431,
+          "first_current_market_listing": "2016-10-27"
+        },
+        "6526": {
+          "removed_price_rows": 761,
+          "first_current_market_listing": "2023-10-19"
+        },
+        "7750": {
+          "removed_price_rows": 306,
+          "first_current_market_listing": "2025-09-17"
+        },
+        "6442": {
+          "removed_price_rows": 122,
+          "first_current_market_listing": "2015-07-14"
+        },
+        "3374": {
+          "removed_price_rows": 53,
+          "first_current_market_listing": "2015-03-30"
+        },
+        "6919": {
+          "removed_price_rows": 419,
+          "first_current_market_listing": "2024-10-02"
+        },
+        "8464": {
+          "removed_price_rows": 204,
+          "first_current_market_listing": "2015-12-22"
+        },
+        "6510": {
+          "removed_price_rows": 284,
+          "first_current_market_listing": "2016-03-24"
+        },
+        "7610": {
+          "removed_price_rows": 601,
+          "first_current_market_listing": "2025-09-09"
+        }
+      }
+    }
+  },
+  "model_parameters": {
+    "model": "buffered_momentum",
+    "top_k": 8,
+    "retention_rank_limit": 16,
+    "rebalance_days": 20,
+    "momentum_windows": [
+      60,
+      120,
+      252
+    ],
+    "skip_days": 10
+  },
+  "isolation": {
+    "source": {
+      "formal_database_attempts": 0,
+      "outside_database_attempts": 0,
+      "source_readonly_connections": 1,
+      "external_download_attempts": 0
+    },
+    "model": {
+      "formal_database_attempts": 0,
+      "outside_database_attempts": 0,
+      "external_download_attempts": 0,
+      "isolated_connections": 1
+    },
+    "public_backup_sha256": "9186fd81f8fa382899b30626903b1a9f85c2d03f9bd6f9319a371c387d896295"
+  },
+  "limitations": [
+    "Current market-cap membership was selected after observing historical markets; it retains selection/survivorship bias and is not historical PIT membership.",
+    "All comparison dates are retrospective; neither universe nor favorable stress setting is automatically deployed or selected.",
+    "Ranking/market-cap methodology is supplied in source JSON, not independently certified historical membership.",
+    "The supplied candidate ranking estimates priced TWSE/TPEx ordinary-share capitalization; issued-common and listed-share capitalizations can differ, and unpriced official-classified stocks are explicitly excluded.",
+    "Prices retain the same unverified +/-11% corporate-action heuristic; neither dataset is certified total-return data.",
+    "Added-stock prices use a conservative current-market ISIN listing-date floor that can exclude legitimate older OTC transfers as well as emerging history; this is not complete PIT eligibility.",
+    "Historical chip dates are not publication timestamps; absent rolling Z observations retain existing gate warmup behavior.",
+    "The benchmark calendar is the existing app calendar, not an independently verified exchange-session calendar.",
+    "Flat costs omit spreads, capacity, locked limits, asymmetric taxes and corporate-action cash/quantity accounting.",
+    "006208 is a close-to-close reference without brokerage entry/exit costs, not a fill-verified paper account.",
+    "The frozen forward paper model and original 50-stock manifest are unchanged by this research."
+  ],
+  "scenarios": [
+    {
+      "name": "cost_0.003_lag_2",
+      "cost": 0.003,
+      "lag": 2,
+      "fixed_50": {
+        "cagr": 0.30419010303339533,
+        "sharpe": 1.2828123397471103,
+        "mdd": -0.29243166185585334,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.06839012961563262,
+        "ir": 0.28473805613571623,
+        "annual_turnover": 8.959995495588382,
+        "deferred_trade_days_full_history": 1
+      },
+      "market_cap_150": {
+        "cagr": 0.6003379108688731,
+        "sharpe": 1.6027662335480826,
+        "mdd": -0.36917464358679053,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.3645379374511104,
+        "ir": 0.9485326395225318,
+        "annual_turnover": 11.701414176029466,
+        "deferred_trade_days_full_history": 0
+      },
+      "paired_cagr_delta_150_minus_50": 0.2961478078354778,
+      "paired_sharpe_delta_150_minus_50": 0.3199538938009723
+    },
+    {
+      "name": "cost_0.003_lag_3",
+      "cost": 0.003,
+      "lag": 3,
+      "fixed_50": {
+        "cagr": 0.28818644994209786,
+        "sharpe": 1.2307566842553916,
+        "mdd": -0.27513531799916957,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.052386476524335146,
+        "ir": 0.22296253701991325,
+        "annual_turnover": 8.981097815586349,
+        "deferred_trade_days_full_history": 1
+      },
+      "market_cap_150": {
+        "cagr": 0.5837647188811976,
+        "sharpe": 1.5775576906574575,
+        "mdd": -0.3726433730821658,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.3479647454634349,
+        "ir": 0.9165586456507616,
+        "annual_turnover": 11.721148877949293,
+        "deferred_trade_days_full_history": 1
+      },
+      "paired_cagr_delta_150_minus_50": 0.2955782689390998,
+      "paired_sharpe_delta_150_minus_50": 0.3468010064020659
+    },
+    {
+      "name": "cost_0.003_lag_4",
+      "cost": 0.003,
+      "lag": 4,
+      "fixed_50": {
+        "cagr": 0.24116764516571298,
+        "sharpe": 1.0555730016441718,
+        "mdd": -0.28106308112324063,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.005367671747950276,
+        "ir": 0.04317112945619245,
+        "annual_turnover": 8.990037654136776,
+        "deferred_trade_days_full_history": 0
+      },
+      "market_cap_150": {
+        "cagr": 0.4712599848138188,
+        "sharpe": 1.336990168160205,
+        "mdd": -0.3825934358467219,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.2354600113960561,
+        "ir": 0.6837971531572806,
+        "annual_turnover": 11.709439587453495,
+        "deferred_trade_days_full_history": 0
+      },
+      "paired_cagr_delta_150_minus_50": 0.23009233964810583,
+      "paired_sharpe_delta_150_minus_50": 0.2814171665160332
+    },
+    {
+      "name": "cost_0.005_lag_2",
+      "cost": 0.005,
+      "lag": 2,
+      "fixed_50": {
+        "cagr": 0.28099563119940574,
+        "sharpe": 1.2028835916301694,
+        "mdd": -0.32184144891572075,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.04519565778164303,
+        "ir": 0.19582568708320638,
+        "annual_turnover": 8.955283613006648,
+        "deferred_trade_days_full_history": 1
+      },
+      "market_cap_150": {
+        "cagr": 0.5632688658556728,
+        "sharpe": 1.5301222389315992,
+        "mdd": -0.37056355547859954,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.3274688924379101,
+        "ir": 0.8715015065249511,
+        "annual_turnover": 11.692976842748113,
+        "deferred_trade_days_full_history": 0
+      },
+      "paired_cagr_delta_150_minus_50": 0.2822732346562671,
+      "paired_sharpe_delta_150_minus_50": 0.3272386473014297
+    },
+    {
+      "name": "cost_0.005_lag_3",
+      "cost": 0.005,
+      "lag": 3,
+      "fixed_50": {
+        "cagr": 0.2652250971561163,
+        "sharpe": 1.1500338748016983,
+        "mdd": -0.3052700289789414,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.029425123738353598,
+        "ir": 0.13408905309393304,
+        "annual_turnover": 8.976057065437715,
+        "deferred_trade_days_full_history": 1
+      },
+      "market_cap_150": {
+        "cagr": 0.5470188588941396,
+        "sharpe": 1.504470239723065,
+        "mdd": -0.3739518951543567,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.3112188854763769,
+        "ir": 0.8394624171545823,
+        "annual_turnover": 11.712621701289535,
+        "deferred_trade_days_full_history": 1
+      },
+      "paired_cagr_delta_150_minus_50": 0.2817937617380233,
+      "paired_sharpe_delta_150_minus_50": 0.35443636492136665
+    },
+    {
+      "name": "cost_0.005_lag_4",
+      "cost": 0.005,
+      "lag": 4,
+      "fixed_50": {
+        "cagr": 0.21902144800221013,
+        "sharpe": 0.97605063405447,
+        "mdd": -0.3042133397532609,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": -0.01677852541555258,
+        "ir": -0.04748407214536245,
+        "annual_turnover": 8.985162971921275,
+        "deferred_trade_days_full_history": 0
+      },
+      "market_cap_150": {
+        "cagr": 0.43715722074974517,
+        "sharpe": 1.2646691364591578,
+        "mdd": -0.3900104075865235,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.20135724733198246,
+        "ir": 0.6061922594548756,
+        "annual_turnover": 11.701056890855112,
+        "deferred_trade_days_full_history": 0
+      },
+      "paired_cagr_delta_150_minus_50": 0.21813577274753504,
+      "paired_sharpe_delta_150_minus_50": 0.2886185024046878
+    },
+    {
+      "name": "cost_0.008_lag_2",
+      "cost": 0.008,
+      "lag": 2,
+      "fixed_50": {
+        "cagr": 0.24696115409603236,
+        "sharpe": 1.0825295112180977,
+        "mdd": -0.36368660933233077,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.011161180678269655,
+        "ir": 0.06290395542158239,
+        "annual_turnover": 8.948384860537262,
+        "deferred_trade_days_full_history": 1
+      },
+      "market_cap_150": {
+        "cagr": 0.5092566441277231,
+        "sharpe": 1.4206792391380803,
+        "mdd": -0.39522507536003115,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.2734566707099604,
+        "ir": 0.7558202580547544,
+        "annual_turnover": 11.68046919585559,
+        "deferred_trade_days_full_history": 0
+      },
+      "paired_cagr_delta_150_minus_50": 0.2622954900316907,
+      "paired_sharpe_delta_150_minus_50": 0.33814972791998255
+    },
+    {
+      "name": "cost_0.008_lag_3",
+      "cost": 0.008,
+      "lag": 3,
+      "fixed_50": {
+        "cagr": 0.23153758955924508,
+        "sharpe": 1.0287056928809657,
+        "mdd": -0.3481484661402401,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": -0.004262383858517627,
+        "ir": 0.001160575427177151,
+        "annual_turnover": 8.968638191234971,
+        "deferred_trade_days_full_history": 1
+      },
+      "market_cap_150": {
+        "cagr": 0.49347993285502967,
+        "sharpe": 1.3943511202839778,
+        "mdd": -0.3759083829877087,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.25767995943726696,
+        "ir": 0.7235573048210296,
+        "annual_turnover": 11.700059578240289,
+        "deferred_trade_days_full_history": 1
+      },
+      "paired_cagr_delta_150_minus_50": 0.2619423432957846,
+      "paired_sharpe_delta_150_minus_50": 0.3656454274030121
+    },
+    {
+      "name": "cost_0.008_lag_4",
+      "cost": 0.008,
+      "lag": 4,
+      "fixed_50": {
+        "cagr": 0.18652888104934506,
+        "sharpe": 0.8566865937854692,
+        "mdd": -0.34719306162191,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": -0.049271092368417646,
+        "ir": -0.18277641457022029,
+        "annual_turnover": 8.978011686806099,
+        "deferred_trade_days_full_history": 0
+      },
+      "market_cap_150": {
+        "cagr": 0.38746711554102786,
+        "sharpe": 1.1560223583792442,
+        "mdd": -0.427197883824298,
+        "benchmark_cagr": 0.2357999734177627,
+        "alpha": 0.15166714212326515,
+        "ir": 0.48988057985879707,
+        "annual_turnover": 11.688659244683445,
+        "deferred_trade_days_full_history": 0
+      },
+      "paired_cagr_delta_150_minus_50": 0.2009382344916828,
+      "paired_sharpe_delta_150_minus_50": 0.299335764593775
+    }
+  ],
+  "evaluation": {
+    "start": "2018-09-18",
+    "end": "2026-10-02",
+    "observations": 1955,
+    "warmup_common_boundary": 756,
+    "same_006208_calendar": true,
+    "historical_app_positions_carried": true
+  },
+  "statistics": {
+    "yearly": [
+      {
+        "year": 2018,
+        "observations": 73,
+        "start": "2018-09-18",
+        "end": "2018-12-28",
+        "annualized_mean_daily_difference_150_minus_50": 0.018214645432093352,
+        "fixed_50": {
+          "cagr": -0.22461056065700702,
+          "sharpe": -2.803040620853493,
+          "mdd": -0.09174653291977952,
+          "benchmark_cagr": -0.4701655384640111,
+          "alpha": 0.24555497780700408,
+          "ir": 1.7737231044128516,
+          "annual_turnover": 5.206223550409482
+        },
+        "market_cap_150": {
+          "cagr": -0.2134109583205558,
+          "sharpe": -1.837152096450552,
+          "mdd": -0.10638331602157491,
+          "benchmark_cagr": -0.4701655384640111,
+          "alpha": 0.2567545801434553,
+          "ir": 1.7214386155400347,
+          "annual_turnover": 6.089459092736742
+        },
+        "006208": {
+          "cagr": -0.4701655384640111,
+          "sharpe": -3.131809940175821,
+          "mdd": -0.1992164544564159,
+          "benchmark_cagr": -0.4701655384640111,
+          "alpha": 0.0,
+          "ir": 0.0
+        }
+      },
+      {
+        "year": 2019,
+        "observations": 242,
+        "start": "2019-01-02",
+        "end": "2019-12-31",
+        "annualized_mean_daily_difference_150_minus_50": 0.18269771740411178,
+        "fixed_50": {
+          "cagr": 0.1630793210125312,
+          "sharpe": 1.1228759245973667,
+          "mdd": -0.10431377495659377,
+          "benchmark_cagr": 0.30267878996892517,
+          "alpha": -0.13959946895639397,
+          "ir": -0.8919957240164508,
+          "annual_turnover": 7.2080804128775515
+        },
+        "market_cap_150": {
+          "cagr": 0.37751745231926814,
+          "sharpe": 1.5783756683040842,
+          "mdd": -0.12610539198790194,
+          "benchmark_cagr": 0.30267878996892517,
+          "alpha": 0.07483866235034298,
+          "ir": 0.3662393949037754,
+          "annual_turnover": 9.159796680443188
+        },
+        "006208": {
+          "cagr": 0.30267878996892517,
+          "sharpe": 2.242624637193956,
+          "mdd": -0.08768267223382109,
+          "benchmark_cagr": 0.30267878996892517,
+          "alpha": 0.0,
+          "ir": 0.0
+        }
+      },
+      {
+        "year": 2020,
+        "observations": 245,
+        "start": "2020-01-02",
+        "end": "2020-12-31",
+        "annualized_mean_daily_difference_150_minus_50": 0.2389137687422336,
+        "fixed_50": {
+          "cagr": 0.3292351367032009,
+          "sharpe": 1.4941466619063926,
+          "mdd": -0.15509188529316753,
+          "benchmark_cagr": 0.2918042538434702,
+          "alpha": 0.03743088285973073,
+          "ir": 0.14223483044119084,
+          "annual_turnover": 7.249953633907711
+        },
+        "market_cap_150": {
+          "cagr": 0.6294070068623951,
+          "sharpe": 1.6309513978146928,
+          "mdd": -0.2604913034869534,
+          "benchmark_cagr": 0.2918042538434702,
+          "alpha": 0.33760275301892495,
+          "ir": 0.8960204355089132,
+          "annual_turnover": 11.673905968885062
+        },
+        "006208": {
+          "cagr": 0.2918042538434702,
+          "sharpe": 1.348671357196823,
+          "mdd": -0.2745421245421247,
+          "benchmark_cagr": 0.2918042538434702,
+          "alpha": 0.0,
+          "ir": 0.0
+        }
+      },
+      {
+        "year": 2021,
+        "observations": 244,
+        "start": "2021-01-04",
+        "end": "2021-12-30",
+        "annualized_mean_daily_difference_150_minus_50": 0.7595071243936522,
+        "fixed_50": {
+          "cagr": 0.43483589460833416,
+          "sharpe": 1.475491479537065,
+          "mdd": -0.21689131337363754,
+          "benchmark_cagr": 0.19737298672482706,
+          "alpha": 0.2374629078835071,
+          "ir": 1.023146417611683,
+          "annual_turnover": 6.2284444133701
+        },
+        "market_cap_150": {
+          "cagr": 1.9292136143486402,
+          "sharpe": 2.8837688164954067,
+          "mdd": -0.21872927933368136,
+          "benchmark_cagr": 0.19737298672482706,
+          "alpha": 1.7318406276238132,
+          "ir": 2.592419805649997,
+          "annual_turnover": 7.65603583013324
+        },
+        "006208": {
+          "cagr": 0.19737298672482706,
+          "sharpe": 1.124172857124123,
+          "mdd": -0.10432098765432107,
+          "benchmark_cagr": 0.19737298672482706,
+          "alpha": 0.0,
+          "ir": 0.0
+        }
+      },
+      {
+        "year": 2022,
+        "observations": 246,
+        "start": "2022-01-03",
+        "end": "2022-12-30",
+        "annualized_mean_daily_difference_150_minus_50": -0.07008470952724616,
+        "fixed_50": {
+          "cagr": -0.08324614989411372,
+          "sharpe": -1.5682291460234201,
+          "mdd": -0.08212583410834873,
+          "benchmark_cagr": -0.24638789525506832,
+          "alpha": 0.1631417453609546,
+          "ir": 0.8153238375762403,
+          "annual_turnover": 8.839690987839838
+        },
+        "market_cap_150": {
+          "cagr": -0.14798296813540568,
+          "sharpe": -1.6304708711322733,
+          "mdd": -0.1499372319763126,
+          "benchmark_cagr": -0.24638789525506832,
+          "alpha": 0.09840492711966264,
+          "ir": 0.46181604788743397,
+          "annual_turnover": 9.274028303135994
+        },
+        "006208": {
+          "cagr": -0.24638789525506832,
+          "sharpe": -1.2060641253620956,
+          "mdd": -0.3504973668812176,
+          "benchmark_cagr": -0.24638789525506832,
+          "alpha": 0.0,
+          "ir": 0.0
+        }
+      },
+      {
+        "year": 2023,
+        "observations": 239,
+        "start": "2023-01-03",
+        "end": "2023-12-29",
+        "annualized_mean_daily_difference_150_minus_50": 0.4542669011517854,
+        "fixed_50": {
+          "cagr": 0.35624538616405843,
+          "sharpe": 1.6136049044934144,
+          "mdd": -0.14472526148193376,
+          "benchmark_cagr": 0.2571022128284588,
+          "alpha": 0.09914317333559963,
+          "ir": 0.49247780478293934,
+          "annual_turnover": 10.431120416777228
+        },
+        "market_cap_150": {
+          "cagr": 1.0955096492447245,
+          "sharpe": 2.8039633743152566,
+          "mdd": -0.1190745262322992,
+          "benchmark_cagr": 0.2571022128284588,
+          "alpha": 0.8384074364162657,
+          "ir": 2.039987962184407,
+          "annual_turnover": 11.649519100367645
+        },
+        "006208": {
+          "cagr": 0.2571022128284588,
+          "sharpe": 1.7633274023328913,
+          "mdd": -0.08306082406801807,
+          "benchmark_cagr": 0.2571022128284588,
+          "alpha": 0.0,
+          "ir": 0.0
+        }
+      },
+      {
+        "year": 2024,
+        "observations": 242,
+        "start": "2024-01-02",
+        "end": "2024-12-31",
+        "annualized_mean_daily_difference_150_minus_50": 0.47760471140613214,
+        "fixed_50": {
+          "cagr": 0.03339481334256078,
+          "sharpe": 0.26451079771709896,
+          "mdd": -0.2104054161308253,
+          "benchmark_cagr": 0.5030465444340113,
+          "alpha": -0.46965173109145053,
+          "ir": -2.432308601277299,
+          "annual_turnover": 15.989404177510222
+        },
+        "market_cap_150": {
+          "cagr": 0.6015629066867214,
+          "sharpe": 1.5473694197861292,
+          "mdd": -0.2506274780842248,
+          "benchmark_cagr": 0.5030465444340113,
+          "alpha": 0.0985163622527101,
+          "ir": 0.2803949757487135,
+          "annual_turnover": 20.65620401856788
+        },
+        "006208": {
+          "cagr": 0.5030465444340113,
+          "sharpe": 1.8451217240327444,
+          "mdd": -0.21194280908326324,
+          "benchmark_cagr": 0.5030465444340113,
+          "alpha": 0.0,
+          "ir": 0.0
+        }
+      },
+      {
+        "year": 2025,
+        "observations": 243,
+        "start": "2025-01-02",
+        "end": "2025-12-31",
+        "annualized_mean_daily_difference_150_minus_50": 0.11348594453481595,
+        "fixed_50": {
+          "cagr": 0.4236804731549102,
+          "sharpe": 1.9745398528167903,
+          "mdd": -0.10388400250047658,
+          "benchmark_cagr": 0.32894184210904887,
+          "alpha": 0.09473863104586133,
+          "ir": 0.22930622614426777,
+          "annual_turnover": 10.591505359893384
+        },
+        "market_cap_150": {
+          "cagr": 0.564011314575706,
+          "sharpe": 1.7794567173268487,
+          "mdd": -0.18071975656092176,
+          "benchmark_cagr": 0.32894184210904887,
+          "alpha": 0.2350694724666571,
+          "ir": 0.5772408722214366,
+          "annual_turnover": 14.869802836932237
+        },
+        "006208": {
+          "cagr": 0.32894184210904887,
+          "sharpe": 1.2428233391281818,
+          "mdd": -0.27449324324324376,
+          "benchmark_cagr": 0.32894184210904887,
+          "alpha": 0.0,
+          "ir": 0.0
+        }
+      },
+      {
+        "year": 2026,
+        "observations": 181,
+        "start": "2026-01-02",
+        "end": "2026-10-02",
+        "annualized_mean_daily_difference_150_minus_50": -0.38056888230517677,
+        "fixed_50": {
+          "cagr": 1.9886944685887333,
+          "sharpe": 2.6131788377916467,
+          "mdd": -0.25580224488805436,
+          "benchmark_cagr": 1.1292064223031697,
+          "alpha": 0.8594880462855636,
+          "ir": 1.3724821610411257,
+          "annual_turnover": 5.445463876129331
+        },
+        "market_cap_150": {
+          "cagr": 0.9124988637056886,
+          "sharpe": 1.3993325716094924,
+          "mdd": -0.36917464358679064,
+          "benchmark_cagr": 1.1292064223031697,
+          "alpha": -0.21670755859748114,
+          "ir": 0.0386485672002622,
+          "annual_turnover": 9.994885134496915
+        },
+        "006208": {
+          "cagr": 1.1292064223031697,
+          "sharpe": 2.5889503933910687,
+          "mdd": -0.168576422606331,
+          "benchmark_cagr": 1.1292064223031697,
+          "alpha": 0.0,
+          "ir": 0.0
+        }
+      }
+    ],
+    "paired_pointwise_bootstrap": {
+      "20": {
+        "rows": 1955,
+        "draws": 3000,
+        "seed": 314159,
+        "annualized_mean_daily_difference": 0.23273633567202948,
+        "pointwise_95_lower": 0.06674696743573841,
+        "pointwise_95_upper": 0.40359220705345855,
+        "single_candidate_one_sided_p": 0.003998667110963012
+      },
+      "40": {
+        "rows": 1955,
+        "draws": 3000,
+        "seed": 314159,
+        "annualized_mean_daily_difference": 0.23273633567202948,
+        "pointwise_95_lower": 0.055345462005472155,
+        "pointwise_95_upper": 0.404321770714767,
+        "single_candidate_one_sided_p": 0.004998333888703766
+      },
+      "60": {
+        "rows": 1955,
+        "draws": 3000,
+        "seed": 314159,
+        "annualized_mean_daily_difference": 0.23273633567202948,
+        "pointwise_95_lower": 0.0566153518141795,
+        "pointwise_95_upper": 0.4176538165762171,
+        "single_candidate_one_sided_p": 0.007997334221926024
+      }
+    },
+    "bootstrap_status": "retrospective_not_adjusted_for_universe_selection",
+    "bootstrap_difference_units": "252 * arithmetic paired daily return mean; not CAGR difference"
+  }
+}

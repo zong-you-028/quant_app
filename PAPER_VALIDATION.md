@@ -69,3 +69,20 @@ python -m core.paper_validation --output data/paper_validation/forward_2026_10_0
 | TradingView Paper Trading | 手動保存紙上委託與核對台股操作 | 台股頁可使用紙上盤；TWSE 免費行情延遲 15 分鐘，因此不直接拿畫面報價驗證精確開盤成交。[台股頁](https://www.tradingview.com/markets/stocks-taiwan/)、[行情覆蓋](https://www.tradingview.com/data-coverage/) |
 
 優先使用本地封存記錄；已有永豐帳戶時，Shioaji 可作第二階段的成交流程對照，須使用禁止正式環境的模擬專用金鑰及 `simulation=True`。本次沒有登入、取得金鑰、開戶或送出任何券商委託。
+
+## 150池與原50分開封存（2026-10-04）
+
+App的新150池不會替換原50實驗。原50程式與公開seed已逐檔SHA還原在 `research/paper_forward_2026_10_03/pinned_runtime/`，同一環境可用其真正舊規則verify/replay；原封存protocol、event與snapshot保持不變。原命令 `python research/paper_forward_2026_10_03/capture_latest.py` 已轉向pinned50，`--offline`不更新網路。
+
+新150另存 `data/paper_validation/forward_150_2026_10_04_v1`，獨立cache為 `data/paper_validation/market_cache_150`，只封存訊號，沒有fills/NAV。名單JSON SHA、估值日期、市場別、掛牌下限、TPEx程式及其餘模型來源一起凍結。同日不覆蓋；source/runtime或歷史資料修訂時停止，不強行更改manifest。固定252個已核實共同前瞻交易日比較150與原50的低換手模型，使用20日配對區塊95%區間；任一方缺及時訊號或未核實成交就不能作績效結論。原各自三臂比較計畫保留。
+
+```powershell
+# 150每次接續（預設只更新獨立公開cache）
+python research/universe_150_2026_10_03/capture_latest.py
+# 無網路檢查與同日冪等
+python research/universe_150_2026_10_03/capture_latest.py --offline
+# 原50精確重播
+python research/paper_forward_2026_10_03/pinned_runtime/launch.py replay
+```
+
+排程接續不用 `--initialize`；缺初始protocol或身份不一致必須停止。新的候選池不代表過擬合已排除。尚無新的未來交易日或可核對成交，不能把封存初始歷史資料日冒稱新的樣本外報酬。

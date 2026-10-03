@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-04
+
+- Expanded the single app pool to a fixed snapshot of 150 quoted ordinary shares by estimated issued-share market cap: 126 TWSE and 24 TPEx. Archived official responses, explicit unpriced exclusions, private-share/listed-cap differences and membership bias limitations. Holdings remain capped at eight.
+- Bundled complete public prices/shareholding through 2026-10-02, added TPEx daily/monthly updates, rejected non-finite/unpublished quotes, and filtered current-market pre-listing history at download and read time. Recent IPO warmup is separated from freshness so it cannot falsely disable all reconciliation actions.
+- Compared unchanged rules on nine fixed cost/lag conditions. Normal historical CAGR is 60.03% versus 30.42%, but drawdown worsens to -36.92% versus -29.24%; current membership selection and survivorship bias remain. No overfitting claim is made.
+- Pinned the exact old50 sources/public seed and kept its original prospective archive unchanged. Added a separate 150-pool signal recorder with metadata/source fingerprints and a predeclared parallel old50 comparison; neither archive implements fills/NAV.
+- Passed 259 regression tests with zero formal-database access, plus 35 focused prospective/integrity checks after extending the protocol. Actual isolated app calculation reproduced the normal 150 comparison result and all 151 source targets were current.
+
 ## 2026-10-03
 
 - Added retrospective end-to-end prefix/future-contamination checks, fixed cost/execution/source-delay stresses, year-concentration diagnostics and an explicitly common-calendar original-rule baseline. Results remain retrospective and do not rule out overfitting; active app rules were not changed.

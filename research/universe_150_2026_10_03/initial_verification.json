@@ -1,0 +1,76 @@
+{
+  "status": "initial_seal_verified",
+  "archive": "data\\paper_validation\\forward_150_2026_10_04_v1",
+  "events": 1,
+  "protocol_hash": "0be811402d3ffd4a834e7149385133a88ebca9c378bfbd6aa7f1e7d9b4d3eee5",
+  "event_hash": "e36eb2ff22f26840ba946e3577bc6e415ca0bafb29709bf27375c358631757b9",
+  "snapshot_hash": "e8938123e3a5527d17f78916c0dd6ffb0185e1eae5f73dfb59af7b8e9b180508",
+  "recorded_at": "2026-10-03T16:46:23.572439+00:00",
+  "data_date": "2026-10-02",
+  "universe_size": 150,
+  "targets": {
+    "006208_buy_hold": {
+      "006208": 1.0
+    },
+    "buffered_momentum": {
+      "1303": 0.125,
+      "2059": 0.125,
+      "3008": 0.125,
+      "3081": 0.125,
+      "3189": 0.125,
+      "6213": 0.125,
+      "6446": 0.125,
+      "8046": 0.125
+    },
+    "production_common_calendar": {
+      "1303": 0.125,
+      "2059": 0.125,
+      "3008": 0.125,
+      "3081": 0.125,
+      "3653": 0.125,
+      "6213": 0.125
+    }
+  },
+  "replay": {
+    "status": "replay_targets_match",
+    "sequence": 1,
+    "recorded_at": "2026-10-03T16:46:23.572439+00:00",
+    "data_date": "2026-10-02",
+    "snapshot_hash": "e8938123e3a5527d17f78916c0dd6ffb0185e1eae5f73dfb59af7b8e9b180508",
+    "targets": {
+      "buffered_momentum": {
+        "1303": 0.125,
+        "2059": 0.125,
+        "3008": 0.125,
+        "3081": 0.125,
+        "3189": 0.125,
+        "6213": 0.125,
+        "6446": 0.125,
+        "8046": 0.125
+      },
+      "production_common_calendar": {
+        "1303": 0.125,
+        "2059": 0.125,
+        "3008": 0.125,
+        "3081": 0.125,
+        "3653": 0.125,
+        "6213": 0.125
+      },
+      "006208_buy_hold": {
+        "006208": 1.0
+      }
+    },
+    "isolation": {
+      "external_network_attempts": 0,
+      "formal_database_attempts": 0
+    },
+    "fills": [],
+    "performance": null
+  },
+  "old50_events": 1,
+  "old50_head_unchanged": true,
+  "execution_status": "pending_future_open_quotes",
+  "fills": [],
+  "performance": null,
+  "initial_seal_is_not_new_future_performance": true
+}

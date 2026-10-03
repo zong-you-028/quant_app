@@ -5,6 +5,8 @@ config.py - 集中管理所有可調參數(paths / MACD / 五分類 / 特徵欄�
 """
 import os
 import sys
+import json
+import datetime as _dt
 
 # ---------------------------------------------------------------------------
 # 路徑設定 (paths)
@@ -224,23 +226,36 @@ ROTATION_SOX_MA = 200          # SOX 均線(慢線才耐得住一天資料落差
 ROTATION_SOX_LAG = 2           # 訊號到實際出場的延遲(交易日;誠實反映台股隔日跳空)
 ROTATION_SOX_SYMBOL = "^SOX"   # 費城半導體指數
 
-# --- PIT 動態池(修存活者偏差 ①+②)---
-# 用「較廣、規則式」的候選池取代手挑的 10 檔贏家(①消除挑選偏差)。
-# 輪動在「每個換股日」只從『當日已有足夠歷史(=已上市夠久,動能算得出)』的標的中選,
-# 這天然就是「點位即時(point-in-time)資格」(②消除前視資格):一檔在上市 mom_days 天
-# 之前 momentum 為 NaN,自動不被選。
-# ★ 誠實但書:此池仍是「今日仍上市」者 -> 已拿掉最毒的『手挑贏家』偏差,但「回測期間
-#   存在、後來下市」的股票(③④)尚未納入,需下市股價資料才能完全去偏。
-UNIVERSE = [
+# 原50池只保留作已封存研究的參考；app只有一個候選池／一個模型。
+LEGACY_UNIVERSE = [
     "2330", "2317", "2454", "2308", "2303", "2412", "2882", "2881", "1301", "2603",
     "2891", "3711", "2002", "2886", "2884", "1303", "2327", "2357", "3008", "2382",
     "2395", "5871", "2880", "2892", "2885", "1216", "2207", "2379", "3045", "2912",
     "1101", "2887", "4938", "5880", "2883", "2890", "2345", "3037", "2301", "3034",
     "2105", "9910", "2474", "1402", "2409", "2354", "2360", "6505", "3443", "3017",
 ]
-# 分散 8 檔 -> 用「廣泛 50 檔 PIT 池」(True):動能 factor 在較廣的池裡才乾淨,
-# 且已修掉「手挑贏家」的選股偏差(較誠實)。想集中 3 支再改 False(用大型股 10 檔)。
-ROTATION_USE_UNIVERSE = True   # 輪動池:True=廣泛50檔(適合 k=8);False=大型股10檔(適合 k=3)
+# 固定當前有有效收盤的普通股「估算市值」快照，不冒稱歷史PIT成分。
+# 啟動只更新行情，不自動重排池；新成分版本要另外驗證／封存。
+with open(os.path.join(BASE_DIR, "data_seed", "universe_150.json"), encoding="utf-8") as _pool_file:
+    _pool_snapshot = json.load(_pool_file)
+UNIVERSE = _pool_snapshot["symbols"]
+if (len(UNIVERSE) != 150 or len(set(UNIVERSE)) != 150
+        or not _pool_snapshot.get("quote_scoped_pool_complete")
+        or _pool_snapshot.get("scope") != "priced_ordinary"):
+    raise ValueError("150檔估算市值候選快照不完整，停止啟動")
+_pool_rows = _pool_snapshot["top150"]
+_pool_date = _dt.date.fromisoformat(_pool_snapshot["asof"])
+if ([r["symbol"] for r in _pool_rows] != UNIVERSE
+        or any(r["market"] not in ("twse", "tpex") for r in _pool_rows)
+        or any(_dt.date.fromisoformat(r["listed_date"]) > _pool_date for r in _pool_rows)
+        or any(len(s) != 4 or not s.isdigit() or s.startswith("0") for s in UNIVERSE)):
+    raise ValueError("150檔市場別／掛牌日期／代號資料不完整，停止啟動")
+UNIVERSE_KIND = "market_cap"
+UNIVERSE_ASOF = _pool_snapshot["asof"]
+UNIVERSE_MARKETS = {r["symbol"]: r["market"] for r in _pool_snapshot["top150"]}
+UNIVERSE_LISTING_DATES = {r["symbol"]: r["listed_date"] for r in _pool_snapshot["top150"]}
+UNIVERSE_PROVISIONAL = True
+ROTATION_USE_UNIVERSE = True   # 150候選、最多8持股；16是續抱排名緩衝
 ROTATION_MIN_OBS = 80          # 一檔至少要有這麼多筆收盤才納入(動能可算 + 夠穩健)
 VOL_WINDOW = 20            # 估算波動度的近 N 日報酬標準差視窗
 BAND_SIGMA = 1.0           # 預期區間寬度(±幾倍期間波動 sigma)
