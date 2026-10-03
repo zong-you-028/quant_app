@@ -1,7 +1,16 @@
 import pandas as pd
 import datetime as dt
+import pytest
 
 from core import data_pipeline as dp
+
+
+@pytest.fixture(autouse=True)
+def price_only_update_tests(monkeypatch):
+    # These legacy cases mock only price storage. Chip-aware behavior is
+    # verified against isolated SQLite in test_data_refresh_integrity.py.
+    monkeypatch.setattr(dp.config, "ROTATION_FASTSELL_GATE", False)
+    monkeypatch.setattr(dp.time, "sleep", lambda duration: None)
 
 
 def test_update_symbols_reports_errors_and_does_not_throttle_total_failure(monkeypatch):

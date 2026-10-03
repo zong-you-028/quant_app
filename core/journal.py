@@ -133,6 +133,20 @@ def init_journal() -> None:
         )
         """
     )
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS corporate_actions (
+            id         {id_type},
+            symbol     TEXT NOT NULL,
+            kind       TEXT NOT NULL,
+            value      REAL NOT NULL,
+            shares     REAL,
+            cash       REAL,
+            ts         TEXT NOT NULL,
+            note       TEXT
+        )
+        """
+    )
     # 舊版 trades 表升級:補上新欄(若不存在)
     if pg:
         cols = [r[0] for r in conn.execute(
@@ -244,6 +258,87 @@ def list_cash_movements(limit: int = 100) -> list:
          "trade_id": r[3], "ts": r[4], "note": r[5] or ""}
         for r in rows
     ]
+
+
+def _eligible_open_lots(symbol: str, action_date: str) -> list:
+    """回傳公司行動日以前買進、目前仍持有的 lots。"""
+    symbol = (symbol or "").strip().upper()
+    action_day = _parse_date(action_date)
+    if not symbol:
+        raise ValueError("代號不可空白")
+    if action_day is None:
+        raise ValueError("日期格式需為 YYYY-MM-DD 或 YYYY-MM-DD HH:MM")
+    return [t for t in list_trades()
+            if t["status"] == "open" and t["symbol"] == symbol
+            and (_parse_date(t.get("buy_time")) or action_day) <= action_day]
+
+
+def record_cash_dividend(symbol: str, per_share: float, when: str,
+                         note: str = "") -> dict:
+    """依除息日前持股計算現金股利，加入現金與總投資損益。"""
+    per_share = float(per_share)
+    if not math.isfinite(per_share) or per_share <= 0:
+        raise ValueError("每股現金股利需大於 0")
+    lots = _eligible_open_lots(symbol, when)
+    shares = sum(t["shares"] for t in lots)
+    if shares <= 0:
+        raise ValueError("除息日前沒有符合的持倉")
+    symbol = symbol.strip().upper()
+    cash = shares * per_share
+    init_journal()
+    conn = get_conn()
+    movement_id = insert_id(
+        conn,
+        "INSERT INTO cash_movements (amount, kind, trade_id, ts, note) "
+        "VALUES (?, 'dividend', NULL, ?, ?)",
+        (cash, when, (note or f"{symbol} 現金股利 {per_share:g}/股").strip()),
+    )
+    insert_id(
+        conn,
+        "INSERT INTO corporate_actions (symbol, kind, value, shares, cash, ts, note) "
+        "VALUES (?, 'cash_dividend', ?, ?, ?, ?, ?)",
+        (symbol, per_share, shares, cash, when, (note or "").strip() or None),
+    )
+    conn.commit()
+    conn.close()
+    return {"symbol": symbol, "shares": shares, "per_share": per_share,
+            "cash": cash, "movement_id": int(movement_id)}
+
+
+def record_stock_split(symbol: str, factor: float, when: str,
+                       note: str = "") -> dict:
+    """套用股票分割／股票股利倍數；成本總額不變，股數增、每股成本同比下降。"""
+    factor = float(factor)
+    if not math.isfinite(factor) or factor <= 0:
+        raise ValueError("股數調整倍數需大於 0")
+    if abs(factor - 1.0) < 1e-12:
+        raise ValueError("股數調整倍數不可等於 1")
+    lots = _eligible_open_lots(symbol, when)
+    if not lots:
+        raise ValueError("公司行動日前沒有符合的持倉")
+    symbol = symbol.strip().upper()
+    before = sum(t["shares"] for t in lots)
+    init_journal()
+    conn = get_conn()
+    for lot in lots:
+        conn.execute(
+            "UPDATE trades SET shares = ?, buy_price = ?, stop_loss = ?, "
+            "take_profit = ? WHERE id = ?",
+            (lot["shares"] * factor, lot["buy_price"] / factor,
+             lot["stop_loss"] / factor if lot.get("stop_loss") else None,
+             lot["take_profit"] / factor if lot.get("take_profit") else None,
+             lot["id"]),
+        )
+    insert_id(
+        conn,
+        "INSERT INTO corporate_actions (symbol, kind, value, shares, cash, ts, note) "
+        "VALUES (?, 'stock_split', ?, ?, NULL, ?, ?)",
+        (symbol, factor, before, when, (note or "").strip() or None),
+    )
+    conn.commit()
+    conn.close()
+    return {"symbol": symbol, "factor": factor, "before": before,
+            "after": before * factor, "lots": len(lots)}
 
 
 def add_buy(symbol: str, amount: float, buy_price: float,
@@ -647,7 +742,11 @@ def summary() -> dict:
     realized = sum(t["pnl"] for t in closed_t if t["pnl"] is not None)
     prices_complete = all(t.get("value") is not None for t in open_t)
     unrealized = sum(t["pnl"] for t in open_t) if prices_complete else None
-    total = (realized + unrealized) if unrealized is not None else None
+    dividend_income = sum(
+        m["amount"] for m in list_cash_movements(limit=100000)
+        if m["kind"] == "dividend"
+    )
+    total = (realized + unrealized + dividend_income) if unrealized is not None else None
     market_value = sum(t["value"] for t in open_t) if prices_complete else None
     realized_proceeds = sum(t["value"] for t in closed_t if t.get("value") is not None)
     cash = cash_balance()
@@ -656,6 +755,7 @@ def summary() -> dict:
         "invested": invested,
         "cost_all": cost_all,
         "realized_pnl": realized,
+        "dividend_income": dividend_income,
         "unrealized_pnl": unrealized,
         "current_return": ((unrealized / invested) if invested else 0.0)
                           if unrealized is not None else None,

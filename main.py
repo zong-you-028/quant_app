@@ -36,12 +36,11 @@ matplotlib.rcParams["axes.unicode_minus"] = False   # 負號正常顯示(避免�
 import flet as ft
 
 import config
-from core.data_pipeline import ensure_data, ensure_db, get_stock_name, load_ohlcv, update_symbols
+from core.data_pipeline import ensure_data, get_stock_name, load_ohlcv, update_symbols, format_update_status
 from core.exit_radar import RadarSettings, analyze_exit_radar
 from core import rotation
 from core import journal
-
-ensure_db()
+from core.strategy_models import ACTIVE_MODEL_ID, active_model_spec, data_quality as model_data_quality
 
 # --- 新舊版相容:Colors / Icons / Border(新版大寫、舊版小寫)---
 C = getattr(ft, "Colors", None) or getattr(ft, "colors", None)
@@ -49,6 +48,65 @@ I = getattr(ft, "Icons", None) or getattr(ft, "icons", None)
 B = getattr(ft, "Border", None) or getattr(ft, "border", None)
 
 AUTH_STORAGE_KEY = "quant_app.remembered_login.v1"
+
+
+def _score_text(value: float, score_kind: str = "momentum_return") -> str:
+    """排名分與歷史動能報酬使用不同單位；分數不是預測報酬。"""
+    if score_kind == "percentile":
+        return f"排名分 {value * 100:.1f} / 100"
+    return f"動能 {value * 100:+.1f}%"
+
+
+def _quality_text(result: dict) -> tuple[str, bool]:
+    quality = result.get("data_quality") or {}
+    asof = quality.get("asof") or result.get("last_date") or result.get("asof") or "尚未確認"
+    target = quality.get("target_date") or "尚未確認"
+    stale = bool(quality.get("stale"))
+    if stale:
+        text = f"資料未達更新目標 · 資料 {asof} / 目標 {target}"
+        text += "\n名單僅供歷史檢視，請更新資料並重新計算後再記錄輪動交易。"
+    elif quality:
+        text = f"資料已達更新目標 · 資料 {asof} / 目標 {target}"
+    else:
+        text = f"資料 {asof} · 新鮮度尚未確認"
+    if quality.get("coverage") is not None:
+        text += f"\n已達目標覆蓋率 {quality['coverage'] * 100:.0f}%"
+        if quality.get("stale_symbols"):
+            text += f" · 未更新 {len(quality['stale_symbols'])} / {quality.get('total_symbols', '—')} 檔"
+    context = []
+    for key, label in (("benchmark_asof", "006208"), ("sox_asof", "費半"),
+                       ("chip_asof", "外資持股最舊日期"), ("signal_asof", "選股依據")):
+        if quality.get(key):
+            context.append(f"{label} {quality[key]}")
+    if context:
+        text += "\n" + " · ".join(context)
+    if quality.get("reasons"):
+        text += "\n" + "；".join(str(reason) for reason in quality["reasons"])
+    return text, stale
+
+
+def make_model_status_card(result: dict) -> ft.Container:
+    """首頁與輪動頁共用的模型／資料狀態，可無 GUI 驗證。"""
+    spec = active_model_spec()
+    status = result.get("validation_status") or spec.get("status", "研究候選")
+    if isinstance(status, dict):
+        status = status.get("label") or status.get("status") or "待驗證"
+    quality_text, stale = _quality_text(result)
+    return ft.Container(content=ft.Column([
+        ft.Text(spec["label"], size=17, weight=ft.FontWeight.BOLD),
+        ft.Text(spec.get("description", ""), size=12),
+        ft.Text(f"驗證狀態：{status}", size=11, color="#1565C0"),
+        ft.Text(quality_text, size=12, weight=ft.FontWeight.BOLD,
+                color="#B26A00" if stale else "#455A64"),
+    ], spacing=5), bgcolor="#FFF3E0" if stale else "#EAF2F8",
+        padding=14, border_radius=14)
+
+
+def _set_button_label(button, label: str) -> None:
+    if hasattr(button, "content"):
+        button.content = label
+    else:
+        button.text = label
 
 
 def _auth_token(password: str) -> str:
@@ -228,13 +286,21 @@ def apply_fit(ui: dict, res: dict) -> None:
     label = (f"{name} {res['symbol']}".strip()
              if name and name != res["symbol"] else res["symbol"])
     ui["signal_name"].value = res["verdict_short"]
+    model_label = active_model_spec()["label"]
+    score = res.get("score", res["mom"])
+    if _quality_text(res)[1]:
+        ui["signal_name"].value = "歷史判定：" + res["verdict_short"]
     ui["signal_sub"].value = (
-        f"{label} · 跳過近期的60日動能 {res['mom']*100:+.1f}% · 輪動排名 {res['rank']}/{res['n']}"
-        f" · 資料 {res['asof']}")
+        f"{label} · {model_label}\n{_score_text(score, res.get('score_kind', 'momentum_return'))}"
+        f" · 輪動排名 {res['rank']}/{res['n']} · 資料 {res['asof']}")
     ui["signal_card"].bgcolor = res["verdict_color"]
     if "note_hint" in ui:
         ui["note_hint"].value = res["note"]
         ui["note_hint"].color = res["verdict_color"]
+        quality_text, stale = _quality_text(res)
+        if stale:
+            ui["note_hint"].value = quality_text + "\n" + res["note"]
+            ui["note_hint"].color = "#B26A00"
 
     # 當前股價卡(收盤 + 當日漲跌)
     dc = res["day_change"]
@@ -255,7 +321,7 @@ def apply_fit(ui: dict, res: dict) -> None:
     # KPI:動能排名 / 絕對動能 / 波動
     ui["rank_val"].value = f"{res['rank']}/{res['n']}"
     ui["rank_val"].color = "#D32F2F" if res["in_top_k"] else getattr(C, "GREY_700", "#616161")
-    m = res["mom"]
+    m = res.get("absolute_momentum", res["mom"])
     ui["abs_val"].value = f"{m*100:+.0f}%"
     ui["abs_val"].color = "#D32F2F" if m >= 0 else "#2E7D32"
     ui["vol_val"].value = f"{res['vol_annual']*100:.0f}%"
@@ -269,9 +335,9 @@ def apply_fit(ui: dict, res: dict) -> None:
 # 本月持有建議:8檔相對強弱動能輪動，只輸出通過全部閘門者
 def monthly_holdings(defensive: bool = False) -> dict:
     """8檔相對強弱輪動入口；只回傳通過全部閘門的實際持有名單。"""
-    return rotation.run_rotation(defensive=defensive)
+    return rotation.run_rotation(defensive=defensive, score_mode=ACTIVE_MODEL_ID)
 def make_holdings_rows(res: dict, on_add=None, held_trades=None,
-                       on_renew=None) -> list:
+                       on_renew=None, include_model_header: bool = True) -> list:
     """
     把輪動結果渲染成 Flet 卡片:頂部統計列 + 每檔持有卡 + 賣出提示。
     on_add 有給時,每檔持有卡附「金額/買入價/停損/停利」輸入 + 一鍵「加入庫存」按鈕;
@@ -281,7 +347,10 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
     而不是再開一次買入欄位 —— 對應「20 天後還選到同一支 -> 更新輪替日期」。
     """
     held_trades = held_trades or {}
-    cards = []
+    # Standalone renderers keep their metadata card; the app already has one
+    # shared, refreshed status card above the tabs.
+    cards = [make_model_status_card(res)] if include_model_header else []
+    _, stale = _quality_text(res)
     # 0) 費半市場燈(RISK ON/OFF;策略切換門檻)
     sox = res.get("sox") or {}
     market_off = bool(sox.get("ok") and not sox.get("risk_on", True))
@@ -295,8 +364,9 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
                         f"{sox['ma_len']}日均線 {sox['ma']:.0f}({sox['pct']:+.1f}%)"
                         f" · 資料 {sox['asof']}",
                         size=11, color="#FFFFFF"),
-                ft.Text("正常持有(費半在均線上)" if on
-                        else "⚠ 建議整批轉現金,等費半站回均線再進場",
+                ft.Text(("歷史市場狀態；請先更新資料再判斷交易。" if stale else
+                         "正常持有(費半在均線上)" if on else
+                         "⚠ 建議整批轉現金,等費半站回均線再進場"),
                         size=13, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
             ], spacing=2),
             bgcolor="#2E7D32" if on else "#B71C1C",
@@ -305,7 +375,7 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
     beat = res["cagr"] >= res["market_cagr"]
     stat = ft.Column([
         ft.Text(
-            f"策略年化 {res['cagr']*100:.1f}%　vs　{res.get('benchmark', '大盤')} {res['market_cagr']*100:.1f}%"
+            f"扣成本後年化 {res['cagr']*100:.1f}%\n{res.get('benchmark', '006208')} 同期年化 {res['market_cagr']*100:.1f}%"
             f"　{'✓ 勝出' if beat else '✗ 落後'}",
             size=13, weight=ft.FontWeight.BOLD,
             color="#D32F2F" if beat else "#2E7D32"),
@@ -319,20 +389,33 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
             f"　·　{res.get('full_start', '—')}～{res.get('full_end', '—')}",
             size=10, color=getattr(C, "GREY", "#9E9E9E")),
         ft.Text(
-            f"模式:{'🛡 防禦(融資濾網·空頭少賠)' if res.get('defensive') else '⚡ 標準(衝報酬)'}"
-            f" · {res['mom_days']} 日動能選前 {res['top_k']} 強 · 每 {res['rebal_days']} 交易日換股 · 資料到 {res['last_date']}",
+            f"{'防禦濾網' if res.get('defensive') else '標準濾網'}"
+            f" · 最多 {res['top_k']} 檔 · 上期模型名單可保留至前 {res['top_k'] * 2} 名"
+            f" · 每 {res['rebal_days']} 交易日換股",
             size=10, color=getattr(C, "GREY", "#9E9E9E")),
+        ft.Text(
+            f"成本假設：每單位換手 {res.get('cost_per_turnover', config.COST_PER_TURNOVER)*100:.2f}%"
+            "；以後續開盤成交，含缺價時延後交易。歷史績效不代表未來報酬。",
+            size=10, color=getattr(C, "GREY_700", "#616161")),
     ], spacing=2)
-    # 絕對動能閘門狀態(本期有幾檔轉現金)
+    execution_date = (res.get("target_execution_date") if "target_execution_date" in res
+                      else res.get("selection_execution_date"))
+    stat.controls.append(ft.Text(
+        f"選股依據日 {res.get('selection_date', '—')} · "
+        f"目標成交日 {execution_date or '待後續交易日確認'} · "
+        f"{res.get('execution_basis', '')}；顯示目標名單，非已成交持倉。"
+        f"歷史缺開盤價延後交易 {res.get('deferred_trade_days', 0)} 天",
+        size=11, color="#B26A00"))
+    # 已啟用閘門的合併排除名單，可能包含動能、外資或市場閘門。
     cash_syms = res.get("cash_symbols", [])
     if res.get("abs_mom"):
         if cash_syms:
             stat.controls.append(ft.Text(
-                f"⚠ 絕對動能閘門:前 {res['top_k']} 強有 {len(cash_syms)} 檔動能翻負 → 該檔轉現金、不進場",
+                f"⚠ {len(cash_syms)} 檔候選未通過已啟用閘門 → 對應名額保留現金",
                 size=11, weight=ft.FontWeight.BOLD, color="#2E7D32"))
         else:
             stat.controls.append(ft.Text(
-                "絕對動能閘門:本期前 K 強動能皆為正,滿倉進場",
+                "配置以通過閘門的目標名單為準；空缺名額保留現金。",
                 size=10, color=getattr(C, "GREY", "#9E9E9E")))
     cards.append(ft.Container(content=stat, bgcolor="#FFF8E1",
                               padding=12, border_radius=12))
@@ -341,25 +424,25 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
     slot = getattr(config, "ROTATION_SLOT_AMOUNT", 30000)
     name_map = res.get("names", {})
     rank_map = {s: (nm, mv) for s, nm, mv in res["ranking"]}
-    visible_holdings = list(res.get("held") or res.get("holdings") or [])
+    visible_holdings = list((res.get("held") if "held" in res else res.get("holdings")) or [])
     for i, sym in enumerate(visible_holdings, 1):
         nm, mv = rank_map.get(sym, (name_map.get(sym, ""), 0.0))
         title = f"{nm} {sym}".strip()
         is_new = sym in res.get("buys", [])
         if is_new:
-            tag, tag_color = "買進", "#D32F2F"
+            tag, tag_color = "歷史入選" if stale else "買進候選", "#D32F2F"
         else:
-            tag, tag_color = "續抱", "#1565C0"
+            tag, tag_color = "歷史續抱" if stale else "續抱候選", "#1565C0"
         badge = ft.Container(
             content=ft.Text(tag, size=12, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
             bgcolor=tag_color, padding=ft.Padding(10, 3, 10, 3), border_radius=8)
         head = ft.Row(
             [ft.Text(f"{i}. {title}", size=16, weight=ft.FontWeight.BOLD),
              badge,
-             ft.Text(f"動能 {mv*100:+.0f}%", size=13, weight=ft.FontWeight.BOLD,
+             ft.Text(_score_text(mv, res.get("score_kind", "momentum_return")), size=13, weight=ft.FontWeight.BOLD,
                      color="#D32F2F" if mv >= 0 else "#2E7D32")],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True, spacing=6)
         col = [head]
         held_t = held_trades.get(sym)
         if held_t is not None:
@@ -377,6 +460,9 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
                     renew_btn = ft.ElevatedButton(text="續抱·更新輪替日",
                                                   icon=getattr(I, "EVENT_REPEAT", None))
                 renew_btn.on_click = (lambda e, s=sym: on_renew(s))
+                renew_btn.disabled = stale
+                if stale:
+                    renew_btn.tooltip = "資料未達更新目標，更新並重新計算後才能續抱。"
                 col.append(ft.Row([renew_btn]))
         elif on_add is None:
             col.append(ft.Text(f"等權持有　建議投入 約 NT$ {slot:,}", size=12,
@@ -404,9 +490,12 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
             add_btn.on_click = (
                 lambda e, s=sym, n=nm, a=amt_f, p=price_f, sl=stop_f, tp=take_f:
                 on_add(s, n, a, p, sl, tp))
+            add_btn.disabled = stale
+            if stale:
+                add_btn.tooltip = "資料未達更新目標，更新並重新計算後才能加入庫存。"
             col.append(ft.Row([amt_f, price_f], spacing=6))
             col.append(ft.Row([stop_f, take_f, add_btn], spacing=6,
-                              vertical_alignment=ft.CrossAxisAlignment.CENTER))
+                              vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True))
         cards.append(ft.Container(
             content=ft.Column(col, spacing=6),
             bgcolor=getattr(C, "GREY_100", "#F5F5F5"), padding=12, border_radius=12))
@@ -422,7 +511,7 @@ def make_holdings_rows(res: dict, on_add=None, held_trades=None,
     if sells:
         names = "、".join(f"{name_map.get(s,'')} {s}".strip() for s in sells)
         cards.append(ft.Container(
-            content=ft.Text(f"賣出(已轉弱、移出前 {res['top_k']} 強):{names}",
+            content=ft.Text(f"{'歷史移出名單' if stale else '賣出候選'}(移出本期目標名單):{names}",
                             size=12, weight=ft.FontWeight.BOLD, color="#2E7D32"),
             bgcolor="#E8F5E9", padding=12, border_radius=12))
     return cards
@@ -452,7 +541,8 @@ def make_summary_text(s: dict) -> str:
         f"現金 {s.get('cash', 0):,.0f}\n"
         f"持倉成本 {s['invested']:,.0f}　"
         f"目前收益 {current_gain}　"
-        f"已實現 {s['realized_pnl']:+,.0f}\n"
+        f"已實現 {s['realized_pnl']:+,.0f}　"
+        f"股利 {s.get('dividend_income', 0):+,.0f}\n"
         f"證券總損益 {total_pnl}　"
         f"累計成本報酬率 {total_return}　·　"
         f"持倉 lot {s['n_open']} · 已平倉 {s['n_closed']}"
@@ -514,13 +604,13 @@ def _edit_card(t: dict, on_save, on_cancel) -> "ft.Container":
                          "" if t.get("take_profit") is None else f"{t['take_profit']:.2f}", 105),
         "note": F("備註", t.get("note") or "", 230),
     }
-    rows = [ft.Row([f["amount"], f["buy_price"], f["buy_time"]], spacing=6),
-            ft.Row([f["stop_loss"], f["take_profit"]], spacing=6)]
+    rows = [ft.Row([f["amount"], f["buy_price"], f["buy_time"]], spacing=6, wrap=True),
+            ft.Row([f["stop_loss"], f["take_profit"]], spacing=6, wrap=True)]
     if not is_open:
         f["sell_price"] = F("賣出價",
                             "" if t.get("sell_price") is None else f"{t['sell_price']:.2f}")
         f["sell_time"] = F("賣出時間", t.get("sell_time") or "", 130)
-        rows.append(ft.Row([f["sell_price"], f["sell_time"]], spacing=6))
+        rows.append(ft.Row([f["sell_price"], f["sell_time"]], spacing=6, wrap=True))
     rows.append(ft.Row([f["note"]], spacing=6))
     try:
         save_btn = ft.Button(content="儲存", icon=getattr(I, "SAVE", None))
@@ -584,7 +674,7 @@ def make_journal_rows(trades: list, on_sell, on_delete, on_edit=None,
              badge,
              ft.Text(pnl_str, size=12, weight=ft.FontWeight.BOLD, color=pnl_color)],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True)
 
         cost_line = (f"投入 {t['amount']:,.0f}　{t['shares']:.2f} 股 @ "
                      f"{t['buy_price']:.2f}　買入 {t['buy_time']}")
@@ -650,7 +740,7 @@ def make_journal_rows(trades: list, on_sell, on_delete, on_edit=None,
                 row.append(edit_btn)
             row.append(del_btn)
             col.append(ft.Row(row, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                              spacing=6))
+                              spacing=6, wrap=True))
         else:
             sold_line = (f"賣出 {t['sell_price']:.2f}　{t.get('sell_time') or ''}"
                          f"　持有 {t['hold_days']} 天")
@@ -671,7 +761,7 @@ def make_journal_rows(trades: list, on_sell, on_delete, on_edit=None,
                          color=getattr(C, "GREY_700", "#616161")),
                  ft.Row(btns, spacing=0)],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER))
+                vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True))
 
         cards.append(ft.Container(
             content=ft.Column(col, spacing=4),
@@ -699,7 +789,7 @@ def make_dca_rows(plans: list, on_toggle, on_delete) -> list:
              ft.Text(f"{p['freq_label']} {p['amount']:,.0f}", size=13,
                      weight=ft.FontWeight.BOLD, color="#1565C0")],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True)
         toggle_btn = ft.IconButton(
             icon=getattr(I, "PAUSE_CIRCLE_OUTLINE" if active else "PLAY_CIRCLE_OUTLINE", None),
             icon_size=20, tooltip=("停用" if active else "啟用"),
@@ -712,7 +802,7 @@ def make_dca_rows(plans: list, on_toggle, on_delete) -> list:
                      color=getattr(C, "GREY_700", "#616161")),
              ft.Row([toggle_btn, del_btn], spacing=0)],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True)
         cards.append(ft.Container(
             content=ft.Column([head, info], spacing=4),
             bgcolor="#FFF8E1", padding=12, border_radius=12))
@@ -746,7 +836,7 @@ def make_asset_history_rows(history: list, on_delete=None, on_edit=None,
             cancel_btn.on_click = lambda e: on_cancel()
             rows.append(ft.Container(
                 content=ft.Column([
-                    ft.Row([ts_field, invested_field, assets_field], spacing=6),
+                    ft.Row([ts_field, invested_field, assets_field], spacing=6, wrap=True),
                     ft.Row([save_btn, cancel_btn], spacing=8),
                 ], spacing=6),
                 bgcolor="#FFF3E0", padding=10, border_radius=10))
@@ -768,7 +858,7 @@ def make_asset_history_rows(history: list, on_delete=None, on_edit=None,
                 icon_color="#B71C1C", tooltip="刪除這筆快照",
                 on_click=(lambda e, _id=snap_id: on_delete(_id))))
         rows.append(ft.Row(cells, alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                           vertical_alignment=ft.CrossAxisAlignment.CENTER))
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True))
     return rows
 
 
@@ -825,8 +915,11 @@ def _build_app(page: ft.Page, on_logout=None):
         pass
 
     # --- 頂部:代號輸入 + 按鈕 ---
+    compute_state = {"busy": False}
+    model_overview = ft.Container(content=make_model_status_card({"score_mode": ACTIVE_MODEL_ID}))
+    compute_status = ft.Text("使用低換手多視窗模型，分析個股或計算輪動名單。", size=11, color="#455A64")
     symbol_field = ft.TextField(
-        label="股票代號", value="2330", width=160,
+        label="股票代號", value="2330", expand=True,
         text_size=16, dense=True,
     )
     # 新舊版相容:新版 ft.Button(content=...)、舊版 ft.ElevatedButton(text=...)
@@ -836,9 +929,9 @@ def _build_app(page: ft.Page, on_logout=None):
         run_btn = ft.ElevatedButton(text="分析這檔", icon=getattr(I, "SEARCH", None))
     # 8檔動能輪動按鈕(新舊版相容)
     try:
-        scan_btn = ft.Button(content="取得8檔輪動名單", icon=getattr(I, "LEADERBOARD", None))
+        scan_btn = ft.Button(content="計算輪動名單", icon=getattr(I, "LEADERBOARD", None))
     except Exception:
-        scan_btn = ft.ElevatedButton(text="取得8檔輪動名單", icon=getattr(I, "LEADERBOARD", None))
+        scan_btn = ft.ElevatedButton(text="計算輪動名單", icon=getattr(I, "LEADERBOARD", None))
     # 更新每日資料按鈕(增量:抓最新收盤)
     try:
         update_btn = ft.Button(content="更新每日資料", icon=getattr(I, "CLOUD_DOWNLOAD", None))
@@ -858,11 +951,11 @@ def _build_app(page: ft.Page, on_logout=None):
                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                           spacing=4),
         bgcolor="#9E9E9E", padding=22, border_radius=16,
-        alignment=ft.Alignment.CENTER, height=120,
+        alignment=ft.Alignment.CENTER,
     )
 
     # --- 適配說明橫幅(分析後顯示:為什麼符合/不符合 + 閘門邏輯)---
-    trade_hint = ft.Text("分析後顯示:60日動能排名與全部閘門判定",
+    trade_hint = ft.Text("分析後顯示：低換手多視窗排名與全部閘門判定",
                          size=14, weight=ft.FontWeight.BOLD,
                          color=getattr(C, "GREY_700", "#616161"),
                          text_align=ft.TextAlign.CENTER)
@@ -878,7 +971,7 @@ def _build_app(page: ft.Page, on_logout=None):
     price_chg = ft.Text("查詢後顯示當前股價", size=14, color=getattr(C, "GREY_700", "#616161"))
     price_date = ft.Text("", size=11, color=getattr(C, "GREY", "#9E9E9E"))
     price_info = ft.Column(
-        [ft.Text("當前股價", size=12, color=getattr(C, "GREY_700", "#616161")),
+        [ft.Text("最近資料收盤價", size=12, color=getattr(C, "GREY_700", "#616161")),
          price_val, price_chg, price_date],
         horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2,
     )
@@ -913,7 +1006,7 @@ def _build_app(page: ft.Page, on_logout=None):
         return box, val
 
     rank_box, rank_val = kpi_card("輪動排名")
-    abs_box, abs_val = kpi_card("60日報酬")
+    abs_box, abs_val = kpi_card("60日歷史報酬")
     vol_box, vol_val = kpi_card("近60日波動")
     kpi_row = ft.Row([rank_box, abs_box, vol_box], spacing=10)
 
@@ -940,9 +1033,9 @@ def _build_app(page: ft.Page, on_logout=None):
         ], spacing=3), padding=14, border_radius=14, bgcolor="#ECEFF1")
     ], spacing=10)
     # --- 8檔動能輪動標的（只顯示通過全部閘門者）---
-    scan_title = ft.Text("8檔動能輪動策略", size=14, weight=ft.FontWeight.BOLD)
+    scan_title = ft.Text("輪動績效與候選名單", size=14, weight=ft.FontWeight.BOLD)
     scan_panel = ft.Column(
-        [ft.Text("按上方「取得8檔輪動名單」顯示通過全部閘門的標的；不足名額保留現金。",
+        [ft.Text("按「計算輪動名單」查看低換手多視窗模型的成本後績效與候選標的。",
                  size=12, color=getattr(C, "GREY", "#9E9E9E"))],
         spacing=8,
     )
@@ -983,6 +1076,22 @@ def _build_app(page: ft.Page, on_logout=None):
     except Exception:
         tx_add_btn = ft.ElevatedButton(text="記錄交易")
     tx_msg = ft.Text("", size=11, color="#B71C1C")
+
+    ca_title = ft.Text("除權息／股票分割", size=14, weight=ft.FontWeight.BOLD)
+    ca_kind = ft.Dropdown(
+        label="公司行動", width=145, value="cash_dividend",
+        options=[ft.DropdownOption(key="cash_dividend", text="現金股利"),
+                 ft.DropdownOption(key="stock_split", text="分割／股票股利")])
+    ca_symbol = ft.TextField(label="代號", width=90, dense=True, text_size=14)
+    ca_value = ft.TextField(label="每股股利／股數倍數", width=170,
+                            dense=True, text_size=14)
+    ca_date = ft.TextField(label="除權息日", width=145, dense=True, text_size=13)
+    ca_note = ft.TextField(label="備註（選填）", width=170, dense=True, text_size=13)
+    try:
+        ca_add_btn = ft.Button(content="套用公司行動", icon=getattr(I, "SYNC_ALT", None))
+    except Exception:
+        ca_add_btn = ft.ElevatedButton(text="套用公司行動")
+    ca_msg = ft.Text("", size=11, color="#B71C1C")
 
     positions_title = ft.Text("目前持倉", size=14, weight=ft.FontWeight.BOLD)
     positions_panel = ft.Column([], spacing=8)
@@ -1053,19 +1162,63 @@ def _build_app(page: ft.Page, on_logout=None):
         "mom_line": bench,
     }
 
+    def refresh_model_overview(result=None):
+        result = dict(result or {})
+        result["score_mode"] = ACTIVE_MODEL_ID
+        if not result.get("data_quality"):
+            try:
+                result["data_quality"] = model_data_quality()
+            except Exception:
+                pass
+        model_overview.content = make_model_status_card(result)
+
+    def clear_stock_result():
+        signal_name.value = "尚未分析"
+        signal_sub.value = "請重新分析低換手多視窗模型的個股適配。"
+        signal_card.bgcolor = "#9E9E9E"
+        trade_hint.value = "重新分析後顯示模型排名與閘門判定。"
+        trade_hint.color = "#616161"
+        for key in ("price_val", "price_chg", "price_date", "rank_val", "abs_val", "vol_val", "mom_line"):
+            ui[key].value = "--"
+        price_holder.content = ft.Text("分析後顯示近 5 日收盤曲線", size=11)
+        chart_holder.content = ft.Text("分析後顯示近 6 個月走勢", size=12)
+        radar_panel.controls = [ft.Text("分析後顯示技術面出場雷達。", size=12)]
+
+    def invalidate_results(message):
+        scan_state["res"] = None
+        clear_stock_result()
+        scan_panel.controls = [ft.Text(message, size=12, color="#455A64")]
+
+    def set_computing(busy, message):
+        compute_state["busy"] = busy
+        run_btn.disabled = scan_btn.disabled = update_btn.disabled = busy
+        compute_status.value = message
+        compute_status.color = "#455A64"
+
+    def check_active_result(result):
+        if result.get("score_mode", ACTIVE_MODEL_ID) != ACTIVE_MODEL_ID:
+            raise ValueError("運算結果模型不一致，請重新計算低換手多視窗模型。")
+
     # --- 事件處理(async)---
     async def on_run(e):
         # 進入分析:鎖按鈕、顯示進度條
-        run_btn.disabled = True
+        if compute_state["busy"]:
+            return
+        clear_stock_result()
+        set_computing(True, f"正在以 {active_model_spec()['label']} 分析個股與出場雷達…")
+        _set_button_label(run_btn, "分析中…")
         progress.visible = True
-        signal_sub.value = "分析中(計算動能排名與閘門)..."
+        signal_name.value = "分析中"
+        signal_sub.value = "計算目前模型排名與全部閘門…"
         page.update()
 
         symbol = (symbol_field.value or "2330").strip().upper()
         try:
             # 輪動適配與出場雷達共用同一批本地行情。
-            res = await asyncio.to_thread(rotation.analyze_stock, symbol)
+            res = await asyncio.to_thread(rotation.analyze_stock, symbol, score_mode=ACTIVE_MODEL_ID)
+            check_active_result(res)
             apply_fit(ui, res)
+            refresh_model_overview(res)
             price_df = await asyncio.to_thread(load_ohlcv, symbol)
             open_trade = next((trade for trade in journal.list_trades()
                                if trade["status"] == "open" and trade["symbol"] == symbol), None)
@@ -1078,15 +1231,20 @@ def _build_app(page: ft.Page, on_logout=None):
             radar = await asyncio.to_thread(analyze_exit_radar, price_df, settings)
             label = f"{res.get('name') or ''} {symbol}".strip()
             radar_panel.controls = make_exit_radar_controls(radar, label)
+            compute_status.value = f"{symbol} 分析完成 · {active_model_spec()['label']}"
         except Exception as ex:
             signal_name.value = "分析失敗"
             signal_sub.value = str(ex)
             signal_card.bgcolor = "#B71C1C"
             radar_panel.controls = [ft.Text(f"出場雷達載入失敗：{ex}",
                                             size=12, color="#B71C1C")]
+            compute_status.value = "分析失敗，可按「重新分析」重試。"
+            compute_status.color = "#B71C1C"
         finally:
             # 一次性收尾更新
-            run_btn.disabled = False
+            compute_state["busy"] = False
+            run_btn.disabled = scan_btn.disabled = update_btn.disabled = False
+            _set_button_label(run_btn, "重新分析")
             progress.visible = False
             page.update()
 
@@ -1094,24 +1252,36 @@ def _build_app(page: ft.Page, on_logout=None):
 
     # --- 8檔動能輪動事件 ---
     async def on_scan(e):
-        scan_btn.disabled = True
+        if compute_state["busy"]:
+            return
+        scan_state["res"] = None
+        set_computing(True, f"正在計算 {active_model_spec()['label']} 的排名與回測…")
+        _set_button_label(scan_btn, "計算中…")
         scan_progress.visible = True
-        scan_panel.controls = [ft.Text("計算8檔動能排名與全部閘門中...", size=12)]
+        scan_panel.controls = [ft.Text("計算模型排名、全部閘門與扣成本後回測…", size=12)]
+        scan_msg.value = ""
         page.update()
         try:
             res = await asyncio.to_thread(monthly_holdings)
+            check_active_result(res)
             scan_state["res"] = res
+            refresh_model_overview(res)
             held_trades = {
                 t["symbol"]: t for t in journal.list_trades()
                 if t["status"] == "open" and t["source"] == "rotation"
             }
             scan_panel.controls = make_holdings_rows(
                 res, on_add=on_add_inventory, held_trades=held_trades,
-                on_renew=on_renew_rotation)
+                on_renew=on_renew_rotation, include_model_header=False)
+            compute_status.value = f"輪動計算完成 · {active_model_spec()['label']}"
         except Exception as ex:
             scan_panel.controls = [ft.Text(f"輪動計算失敗：{ex}", size=12, color="#B71C1C")]
+            compute_status.value = "輪動計算失敗，可按「重新計算名單」重試。"
+            compute_status.color = "#B71C1C"
         finally:
-            scan_btn.disabled = False
+            compute_state["busy"] = False
+            run_btn.disabled = scan_btn.disabled = update_btn.disabled = False
+            _set_button_label(scan_btn, "重新計算名單")
             scan_progress.visible = False
             page.update()
 
@@ -1129,9 +1299,13 @@ def _build_app(page: ft.Page, on_logout=None):
         return list(dict.fromkeys(s for s in syms if s))
 
     async def on_update(e):
-        update_btn.disabled = True
+        if compute_state["busy"]:
+            return
+        set_computing(True, "正在更新每日資料…")
+        invalidate_results("資料更新中，完成後請重新計算目前模型。")
+        _set_button_label(update_btn, "更新中…")
         scan_progress.visible = True
-        scan_msg.value = "更新每日資料中(抓取最新收盤,首次較久)..."
+        scan_msg.value = "更新每日資料中(抓取最新收盤；未完成標的會自動補抓，首次較久)..."
         scan_msg.color = getattr(C, "GREY_700", "#616161")
         page.update()
         try:
@@ -1143,9 +1317,7 @@ def _build_app(page: ft.Page, on_logout=None):
                 await asyncio.to_thread(market_regime.refresh_sox)
             except Exception:
                 pass
-            scan_msg.value = (
-                f"已更新到 {res['asof']}　更新 {res['updated']} 檔 · "
-                f"已最新 {res['current']} · 失敗 {res['failed']} · 費半燈已更新")
+            scan_msg.value = format_update_status(res)
             if res.get("failed"):
                 failed = "、".join(res.get("failed_symbols", [])[:6])
                 first_error = next(iter((res.get("errors") or {}).values()), "")
@@ -1154,13 +1326,24 @@ def _build_app(page: ft.Page, on_logout=None):
                     scan_msg.value += f"\n原因:{first_error[:240]}"
                 scan_msg.color = "#B71C1C"
             else:
-                scan_msg.color = "#2E7D32"
+                scan_msg.color = "#B26A00" if res.get("stale") else "#2E7D32"
             refresh_journal()       # 庫存現價/損益/停損停利警示一起刷新
+            invalidate_results("資料更新完成，請重新計算目前模型的輪動名單。")
+            refresh_model_overview()
+            if res.get("stale") or res.get("failed"):
+                compute_status.value = "仍有資料未達更新目標；計算結果僅供歷史檢視。"
+                compute_status.color = "#B26A00"
+            else:
+                compute_status.value = "資料更新完成；請重新分析個股或計算輪動名單。"
         except Exception as ex:
             scan_msg.value = f"更新失敗:{ex}"
             scan_msg.color = "#B71C1C"
+            compute_status.value = "資料更新失敗，可重新更新。"
+            compute_status.color = "#B71C1C"
         finally:
-            update_btn.disabled = False
+            compute_state["busy"] = False
+            run_btn.disabled = scan_btn.disabled = update_btn.disabled = False
+            _set_button_label(update_btn, "更新每日資料")
             scan_progress.visible = False
             page.update()
 
@@ -1180,16 +1363,30 @@ def _build_app(page: ft.Page, on_logout=None):
             if quote_res["symbols"]:
                 j_quote_status.value = (
                     f"市值資料：更新 {quote_res['updated']} 檔、已最新 {quote_res['current']} 檔、"
-                    f"無法取得 {quote_res['failed']} 檔（以最近收盤計算）")
-            if res.get("updated"):
-                scan_msg.value = f"已自動更新每日資料到 {res['asof']}(更新 {res['updated']} 檔)"
-                scan_msg.color = "#2E7D32"
+                    f"尚未到目標 {quote_res.get('stale', 0)} 檔 · 無法取得 {quote_res['failed']} 檔（以最近收盤計算）")
+            if not res.get("throttled"):
+                scan_msg.value = format_update_status(res)
+                scan_msg.color = "#B26A00" if res.get("stale") or res.get("failed") else "#2E7D32"
+            if not compute_state["busy"]:
+                invalidate_results("行情背景更新完成，請重新計算目前模型。")
+                refresh_model_overview()
             page.update()
         except Exception:
             pass
 
     # 續抱:本期又選到已持有的標的 -> 更新輪替日 + 依現價重算停損/停利(月度移動停損)
+    def require_current_rotation():
+        result = scan_state.get("res")
+        if compute_state["busy"] or not result or result.get("score_mode", ACTIVE_MODEL_ID) != ACTIVE_MODEL_ID or _quality_text(result)[1]:
+            scan_msg.value = "請先更新資料並重新計算目前模型，再記錄輪動交易；手動交易仍可在投資紀錄操作。"
+            scan_msg.color = "#B26A00"
+            page.update()
+            return False
+        return True
+
     def on_renew_rotation(symbol):
+        if not require_current_rotation():
+            return
         try:
             cur = journal.get_last_close(symbol)
             sl = tk = None
@@ -1209,7 +1406,7 @@ def _build_app(page: ft.Page, on_logout=None):
                             if t["status"] == "open" and t["source"] == "rotation"}
                     scan_panel.controls = make_holdings_rows(
                         res, on_add=on_add_inventory, held_trades=held,
-                        on_renew=on_renew_rotation)
+                        on_renew=on_renew_rotation, include_model_header=False)
             else:
                 scan_msg.value = f"{symbol} 沒有持有中的輪動紀錄可更新"
                 scan_msg.color = "#B71C1C"
@@ -1220,6 +1417,8 @@ def _build_app(page: ft.Page, on_logout=None):
 
     # 一鍵把本月推薦的標的加入庫存(source='rotation',另記停損/停利)
     def on_add_inventory(symbol, name, amt_field, price_field, stop_field, take_field):
+        if not require_current_rotation():
+            return
         try:
             amount = float(amt_field.value)
             price = float(price_field.value)
@@ -1383,6 +1582,29 @@ def _build_app(page: ft.Page, on_logout=None):
             tx_msg.color = "#B71C1C"
         page.update()
 
+    def on_corporate_action(e):
+        ca_msg.value = ""
+        try:
+            symbol = (ca_symbol.value or "").strip()
+            value = float(ca_value.value)
+            when = (ca_date.value or "").strip()
+            note = (ca_note.value or "").strip()
+            if ca_kind.value == "stock_split":
+                result = journal.record_stock_split(symbol, value, when, note)
+                ca_msg.value = (f"已調整 {result['symbol']}：{result['before']:g} → "
+                                f"{result['after']:g} 股，成本單價同步調整")
+            else:
+                result = journal.record_cash_dividend(symbol, value, when, note)
+                ca_msg.value = (f"已記錄 {result['symbol']} 現金股利 "
+                                f"{result['cash']:,.0f}")
+            ca_msg.color = "#2E7D32"
+            ca_symbol.value = ca_value.value = ca_date.value = ca_note.value = ""
+            refresh_journal()
+        except Exception as ex:
+            ca_msg.value = f"公司行動套用失敗：{ex}"
+            ca_msg.color = "#B71C1C"
+        page.update()
+
     def on_sell_trade(trade_id, price_field, qty_field=None):
         """股數留空 = 整筆平倉;有填 = 部分賣出(拆成已平倉 + 剩餘持有)。"""
         j_msg.value = ""
@@ -1530,12 +1752,14 @@ def _build_app(page: ft.Page, on_logout=None):
     j_add_btn.on_click = on_add_buy
     j_cash_btn.on_click = on_set_cash
     tx_add_btn.on_click = on_record_transaction
+    ca_add_btn.on_click = on_corporate_action
     j_records_btn.on_click = on_toggle_records
     j_history_btn.on_click = on_toggle_history
     j_snap_btn.on_click = on_snapshot
     dca_add_btn.on_click = on_add_dca
     dca_run_btn.on_click = on_run_dca
     refresh_journal()        # 啟動時載入既有紀錄
+    refresh_model_overview()
 
     # --- 組裝版面(三個分頁,不再一路向下延伸)---
     _scroll = getattr(ft, "ScrollMode", None) and ft.ScrollMode.AUTO
@@ -1554,16 +1778,28 @@ def _build_app(page: ft.Page, on_logout=None):
             kpi_row,
             bench,
             ft.Divider(),
-            ft.Row([radar_horizon, radar_atr_mode], spacing=8),
+            ft.Row([radar_horizon, radar_atr_mode], spacing=8, wrap=True),
             radar_panel,
         ],
         spacing=16, scroll=_scroll, expand=True,
     )
 
     # 分頁 2:本月持有(相對強弱輪動)
+    usage_guide = ft.ExpansionTile(
+        title=ft.Text("使用流程", size=13, weight=ft.FontWeight.BOLD),
+        controls=[ft.Container(content=ft.Column([
+            ft.Text("1. 按「更新每日資料」，確認資料已達更新目標。未達目標時，名單僅供歷史檢視。", size=12),
+            ft.Text("2. 按「計算輪動名單」，查看成本後績效、排名及閘門結果。", size=12),
+            ft.Text("3. 核對選股依據日、目標成交日與候選名單。名單並非已成交持倉；空缺名額保留現金。", size=12),
+            ft.Text("4. 實際成交後，到「投資紀錄」如實記錄交易的成交價與股數。", size=12),
+            ft.Text("「加入庫存」僅新增庫存紀錄、不扣現金；若已記錄交易，勿再加入造成重複記帳。", size=11, color="#455A64"),
+            ft.Text("「續抱」只更新紀錄中的輪替日期與停損停利，不代表市場已成交。", size=11, color="#455A64"),
+            ft.Text("App 提供分析與交易紀錄，不會自動下單。個股分析與策略輪動皆使用低換手多視窗模型。", size=11, color="#455A64"),
+        ], spacing=7), padding=12)],
+    )
     tab_holdings = ft.Column(
-        [ft.Row([scan_btn, update_btn], spacing=8),
-         scan_progress, scan_title, scan_msg, scan_panel],
+        [ft.Row([scan_btn, update_btn], spacing=8, wrap=True),
+         scan_progress, scan_title, usage_guide, scan_msg, scan_panel],
         spacing=16, scroll=_scroll, expand=True,
     )
 
@@ -1574,20 +1810,29 @@ def _build_app(page: ft.Page, on_logout=None):
             ft.Text("第一次使用時，逐筆輸入目前持倉；這些期初資料不會扣除現金。",
                     size=11, color=getattr(C, "GREY_700", "#616161")),
             ft.Row([j_symbol, j_amount, j_price],
-                   alignment=ft.MainAxisAlignment.START, spacing=8),
+                   alignment=ft.MainAxisAlignment.START, spacing=8, wrap=True),
             ft.Row([j_date, j_note],
-                   alignment=ft.MainAxisAlignment.START, spacing=8),
+                   alignment=ft.MainAxisAlignment.START, spacing=8, wrap=True),
             ft.Row([j_add_btn, j_cash, j_cash_btn],
-                   alignment=ft.MainAxisAlignment.START, spacing=8),
+                   alignment=ft.MainAxisAlignment.START, spacing=8, wrap=True),
             j_msg,
             ft.Divider(),
             tx_title,
             ft.Row([tx_side, tx_symbol, tx_qty],
-                   alignment=ft.MainAxisAlignment.START, spacing=8),
+                   alignment=ft.MainAxisAlignment.START, spacing=8, wrap=True),
             ft.Row([tx_price, tx_date, tx_note],
-                   alignment=ft.MainAxisAlignment.START, spacing=8),
+                   alignment=ft.MainAxisAlignment.START, spacing=8, wrap=True),
             tx_add_btn,
             tx_msg,
+            ft.Divider(),
+            ca_title,
+            ft.Text("現金股利填每股金額；分割／股票股利填股數倍數，例如 1 股變 2 股填 2。",
+                    size=11, color=getattr(C, "GREY_700", "#616161")),
+            ft.Row([ca_kind, ca_symbol, ca_value],
+                   alignment=ft.MainAxisAlignment.START, spacing=8, wrap=True),
+            ft.Row([ca_date, ca_note, ca_add_btn],
+                   alignment=ft.MainAxisAlignment.START, spacing=8, wrap=True),
+            ca_msg,
             ft.Divider(),
             ft.Text("績效與成本", size=14, weight=ft.FontWeight.BOLD),
             j_summary_card,
@@ -1607,10 +1852,10 @@ def _build_app(page: ft.Page, on_logout=None):
             dca_title,
             ft.Row([dca_symbol, dca_amount, dca_freq],
                    alignment=ft.MainAxisAlignment.START, spacing=8,
-                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                   vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True),
             ft.Row([dca_start, dca_add_btn, dca_run_btn],
                    alignment=ft.MainAxisAlignment.START, spacing=8,
-                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                   vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True),
             dca_msg,
             dca_panel,
         ],
@@ -1626,7 +1871,7 @@ def _build_app(page: ft.Page, on_logout=None):
                 [
                     ft.TabBar(tabs=[
                         ft.Tab(label="個股分析", icon=getattr(I, "INSIGHTS", None)),
-                        ft.Tab(label="本月持有", icon=getattr(I, "LEADERBOARD", None)),
+                        ft.Tab(label="策略輪動", icon=getattr(I, "LEADERBOARD", None)),
                         ft.Tab(label="投資紀錄", icon=getattr(I, "BOOK", None)),
                     ]),
                     ft.TabBarView(
@@ -1636,20 +1881,24 @@ def _build_app(page: ft.Page, on_logout=None):
                 expand=True, spacing=8,
             ),
         )
-        page.add(tabs)
+        page.add(ft.Column([
+            model_overview, compute_status, tabs,
+        ], spacing=8, expand=True))
     except Exception:
         # 舊版相容:無分頁元件時,退回單欄捲動版面
         page.scroll = _scroll
         page.add(ft.Column(
-            [ft.Text("個股分析", size=16, weight=ft.FontWeight.BOLD), tab_stock,
+            [model_overview, compute_status,
+             ft.Text("個股分析", size=16, weight=ft.FontWeight.BOLD), tab_stock,
              ft.Divider(),
-             ft.Text("本月持有", size=16, weight=ft.FontWeight.BOLD), tab_holdings,
+             ft.Text("策略輪動", size=16, weight=ft.FontWeight.BOLD), tab_holdings,
              ft.Divider(),
              ft.Text("投資紀錄", size=16, weight=ft.FontWeight.BOLD), tab_journal],
             spacing=16, scroll=_scroll))
 
     # 啟動後背景自動更新每日資料一次(受節流;不卡 UI)
-    if hasattr(page, "run_task"):
+    offline_preview = os.environ.get("QUANT_APP_OFFLINE", "").strip().lower() in {"1", "true", "yes", "on"}
+    if hasattr(page, "run_task") and not offline_preview:
         try:
             page.run_task(_auto_update)
         except Exception:

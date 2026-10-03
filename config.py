@@ -32,7 +32,7 @@ DATA_SOURCE = "finmind"
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 FINMIND_TOKEN = os.environ.get("FINMIND_TOKEN", "")   # 有 token 額度更高;留空亦可
 FINMIND_START = "2015-01-01"                            # 抓取起始日(越長訓練越穩)
-FALLBACK_TO_SYNTHETIC = True                            # 真實資料失敗 -> 退回合成
+FALLBACK_TO_SYNTHETIC = False                           # 真實行情失敗時回報，避免合成價格進入選股
 
 # ---------------------------------------------------------------------------
 # 還原股價 / 公司行動調整 (back-adjustment for corporate actions)
@@ -178,10 +178,13 @@ ROTATION_MOM_DAYS = 60      # 動能視窗(60 日≈季線報酬;實測最穩健
 # 優於不跳(去偏池 Sharpe 1.00→1.13、OOS 1.21→1.43),且為文獻經典作法(12-2 動能)。
 # 注意:絕對動能「閘門」仍用不跳的原始動能(與實驗設定一致)。設 0 = 關閉。
 ROTATION_SKIP_DAYS = 10
+# App 統一使用 core.strategy_models.ACTIVE_MODEL_ID 的低換手多視窗模型。
+# 歷史候選只保留於研究重播，不提供模式切換。
 # 持有檔數:分散 8 檔搭「廣泛 50 檔池」是「可靠贏大盤」的版本(動能 factor 浮得出來、
 # 不被個股雜訊蓋過)。實測 k=8:MDD -36.6%、12 年贏大盤 9 年。用零股即可小資金鋪滿。
 # (想集中賭 3 支高變異,改 ROTATION_TOP_K=3 + ROTATION_USE_UNIVERSE=False。)
 ROTATION_TOP_K = 8          # 同時持有最強的前幾檔(等權;分散版)
+ROTATION_EXECUTION_LAG = 2  # Data t -> available t+1 -> execute at t+2 open
 ROTATION_REBAL_DAYS = 20    # 換股週期(交易日;20≈1 個月)
 ROTATION_SLOT_AMOUNT = 30000  # 每檔建議投入金額(等權;新台幣)
 ROTATION_STOP_PCT = 0.08      # 固定%停損(僅作 ATR 算不出時的退路)

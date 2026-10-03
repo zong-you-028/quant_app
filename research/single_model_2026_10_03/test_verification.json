@@ -1,0 +1,25 @@
+{
+  "started_at_taipei": "2026-10-03T10:00:53.749188+08:00",
+  "finished_at_taipei": "2026-10-03T10:01:02.610348+08:00",
+  "command": "pytest.main(['-q'])",
+  "pytest_exit_code": 0,
+  "pytest_summary": {
+    "passed": 116,
+    "failed": 0,
+    "error": 0,
+    "skipped": 0,
+    "duration_seconds": 8.861,
+    "source": "pytest terminalreporter session statistics"
+  },
+  "real_database_guard_enabled_before_pytest_import": true,
+  "guarded_real_database": "D:\\quant_app\\data\\market.db",
+  "allowed_temporary_root": "C:\\Users\\USER\\AppData\\Local\\Temp",
+  "temporary_database_count": 22,
+  "connection_attempts": 518,
+  "real_db_access_attempts": 0,
+  "nonisolated_access_attempts": 0,
+  "allowed_temp_connections": 518,
+  "allowed_memory_connections": 0,
+  "blocked_attempts": [],
+  "passed_with_database_isolation": true
+}

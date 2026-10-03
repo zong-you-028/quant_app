@@ -4,9 +4,9 @@ rotation.py - 相對強弱輪動策略(cross-sectional momentum rotation)
 本專案的「主策略骨幹」。職責:
   1. 對觀察清單每檔算「動能」(N 日報酬),每隔 rebal 天把資金「等權」配置到
      動能最強的前 K 檔,其餘空手 —— 永遠押當下最強的幾檔,賺相對強弱溢酬。
-  2. 回測:組合報酬 = 前一日權重 × 當日報酬;成本 = |權重變動| × 每單位換手成本。
+  2. 回測:訊號延遲至開盤成交，持股跨日計價，成交當日扣換手成本。
   3. 回傳:權益曲線、CAGR、最大回撤,以及「大盤代理(等權買進持有)」對照,
-     並給出「本期應持有清單(今日動能排名前 K)」與相對上期的買進/賣出/續抱差異。
+     並給出「本期應持有清單(最近排定選股日的前 K)」與相對上期的買進/賣出/續抱差異。
 為什麼用它:單檔擇時(ML/均值回歸/動能)長線打不贏單檔死抱(長多股全倉只能打平
 還扣成本);輪動是正統打敗指數的方式,且每月換股≈短波段(持有約 1~2 月)。
 純函式、不依賴 Flet,便於單元測試。
@@ -16,6 +16,8 @@ import pandas as pd
 
 import config
 from core.data_pipeline import ensure_data, get_stock_name, load_ohlcv
+from core.execution import backtest_open_execution
+from core.strategy_models import build_rank_scores, data_quality, model_spec, validation_status
 
 
 # ---------------------------------------------------------------------------
@@ -32,7 +34,7 @@ def _cagr(equity: pd.Series) -> float:
 def _mdd(equity: pd.Series) -> float:
     if equity is None or equity.empty:
         return 0.0
-    return float((equity / equity.cummax() - 1.0).min())
+    return float((equity / equity.cummax().clip(lower=1.0) - 1.0).min())
 
 
 def _aligned_performance(net_ret: pd.Series, benchmark_ret: pd.Series,
@@ -189,7 +191,7 @@ def _select_picks(mom_row, gate_row, top_k, abs_mom, abs_thresh,
 def run_rotation(symbols=None, mom_days=None, top_k=None,
                  rebal_days=None, cost_per_turnover=None,
                  abs_mom=None, abs_thresh=None, defensive=None,
-                 sox_gate=None) -> dict:
+                 sox_gate=None, score_mode=None) -> dict:
     """
     執行相對強弱輪動回測,並回傳「現在該持有哪幾檔」。
     參數預設讀 config.ROTATION_*。回傳 dict(見檔末 return 註解)。
@@ -201,6 +203,7 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
                     and getattr(config, "UNIVERSE", None))
         symbols = config.UNIVERSE if use_univ else config.WATCHLIST
     mom_days = mom_days or config.ROTATION_MOM_DAYS
+    score_mode, spec = model_spec(score_mode)
     top_k = top_k or config.ROTATION_TOP_K
     rebal_days = rebal_days or config.ROTATION_REBAL_DAYS
     cost = (config.COST_PER_TURNOVER if cost_per_turnover is None
@@ -216,6 +219,16 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
 
     ret_df, mom_df, gate_df, names = _load_panel(
         symbols, mom_days, getattr(config, "ROTATION_MIN_OBS", None))
+    prices = {s: load_ohlcv(s) for s in ret_df.columns}
+    if score_mode != "production":
+        benchmark_prices = load_ohlcv(config.BENCHMARK_SYMBOL)
+        if benchmark_prices is None or benchmark_prices.empty:
+            raise RuntimeError("新模型需要 006208 的真實行情作共同交易日曆；請先更新資料。")
+        calendar = pd.DatetimeIndex(benchmark_prices["close"].dropna().index).sort_values()
+        closes = pd.DataFrame({s: p["close"] for s, p in prices.items()}).reindex(calendar)
+        ret_df = closes.pct_change(fill_method=None)
+        mom_df = build_rank_scores(closes, score_mode)
+        gate_df = closes.pct_change(mom_days, fill_method=None)
     idx = ret_df.index
     cols = ret_df.columns
 
@@ -244,6 +257,7 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
     rebal_dates = idx[::rebal_days]
     weights = pd.DataFrame(np.nan, index=idx, columns=cols)
     selections = {}                               # 換股日 -> 當日實際持有(已過閘門)的代號
+    selection_candidates = {}
     for d in rebal_dates:
         row = mom_df.loc[d].dropna()
         if row.empty:
@@ -253,6 +267,13 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
                 and d in margin_panel.index) else None)
         fsrow = (fastsell_panel.loc[d] if (fastsell_panel is not None
                  and d in fastsell_panel.index) else None)
+        if score_mode == "buffered_momentum" and not defensive:
+            ranked = row.sort_values(ascending=False, kind="stable")
+            previous = list(selections[next(reversed(selections))]) if selections else []
+            retained = [s for s in ranked.head(2 * top_k).index if s in previous]
+            picks = (retained + [s for s in ranked.index if s not in retained])[:top_k]
+            row = pd.Series(np.arange(len(picks), 0, -1, dtype=float), index=picks)
+        selection_candidates[d] = list(row.sort_values(ascending=False).head(top_k).index)
         sel = _select_picks(row, grow, top_k, abs_mom, abs_thresh,
                             defensive=defensive, margin_row=mrow, pool_mult=pool_mult,
                             fastsell_row=fsrow, fastsell_z=fs_z)
@@ -264,24 +285,24 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
     # 換股日之間沿用上一次權重
     weights = weights.ffill().fillna(0.0)
 
-    # 組合每日報酬(前一日權重 × 當日報酬)與換手成本
-    port_ret = (weights.shift(1).fillna(0.0) * ret_df.fillna(0.0)).sum(axis=1)
-    turn = weights.diff().abs().sum(axis=1)
-    if len(turn):
-        turn.iloc[0] = weights.iloc[0].abs().sum()
-    net_ret = port_ret - turn * cost
-
-    # 費半市場燈:RISK OFF(SOX 跌破均線)時整批轉現金(逐日,無前視)
+    # Targets are formed on data dates; all trades execute at delayed opens.
     sox = {"ok": False, "risk_on": True}
     if sox_gate:
         try:
             from core import market_regime
-            reg = market_regime.sox_regime_series(idx)
-            switch = reg.diff().abs().fillna(0.0) * cost   # 進出現金的換手成本
-            net_ret = net_ret * reg - switch
-            sox = market_regime.sox_status()
+            reg = market_regime.sox_regime_series(idx, lag=0)
+            weights = weights.mul(reg, axis=0)
+            sox = market_regime.sox_status(asof=idx[-1])
+            sox["risk_on"] = bool(reg.iloc[-1])
+            sox["signal_asof"] = idx[-1].strftime("%Y-%m-%d")
         except Exception:
             sox = {"ok": False, "risk_on": True}
+    lag = config.ROTATION_EXECUTION_LAG
+    opens = pd.DataFrame({s: p["open"] for s, p in prices.items()})
+    closes = pd.DataFrame({s: p["close"] for s, p in prices.items()})
+    net_ret, turn = backtest_open_execution(
+        weights, opens, closes, lag=lag, cost=cost,
+        rebalance=pd.Series(idx.isin(list(selections)), index=idx))
     full_equity = (1.0 + net_ret).cumprod()
 
     # 研究用大盤代理:等權買進持有全部可用標的(不作 UI 正式基準)
@@ -306,23 +327,23 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
         )
         full_perf = _aligned_performance(net_ret, mkt_ret, None)
 
-    # --- 本期應持有清單:以「最新一日」動能排名(今天要押的就是這幾檔)---
-    last_mom = mom_df.iloc[-1].dropna().sort_values(ascending=False)
-    last_gate = gate_df.iloc[-1]
-    last_margin = (margin_panel.iloc[-1] if (margin_panel is not None
-                   and len(margin_panel)) else None)
-    last_fs = (fastsell_panel.iloc[-1] if (fastsell_panel is not None
-               and len(fastsell_panel)) else None)
+    # Retain the latest scheduled selection between rebalance dates.
+    sel_dates = sorted(selections)
+    signal_date = sel_dates[-1] if sel_dates else idx[-1]
+    last_mom = mom_df.loc[signal_date].dropna().sort_values(ascending=False)
+    last_gate = gate_df.loc[signal_date]
+    last_fs = fastsell_panel.loc[signal_date] if fastsell_panel is not None else None
     ranking = [(s, names.get(s, ""), float(last_mom[s])) for s in last_mom.index]
-    held = _select_picks(last_mom, last_gate, top_k, abs_mom, abs_thresh,
-                        defensive=defensive, margin_row=last_margin, pool_mult=pool_mult,
-                        fastsell_row=last_fs, fastsell_z=fs_z)
+    held = list(selections.get(signal_date, []))
     # 本期被「外資急賣」踢掉的標的(供 UI 標示原因)
     fastsell_symbols = ([s for s in last_mom.index
                          if pd.notna(last_fs.get(s)) and last_fs.get(s) < fs_z]
                         if last_fs is not None else [])
     candidates = ([s for s, _, _ in ranking[:top_k]]
                   if not defensive else list(held))
+    if score_mode == "buffered_momentum":
+        # Raw top-K ranks can differ from retained portfolio members.
+        candidates = list(selection_candidates.get(signal_date, []))
     cash_symbols = [s for s in candidates if s not in held]
     holdings = list(held)                              # 對外只提供通過全部閘門者
     # 市場燈 RISK OFF -> 本期整批轉現金(holdings 留作「站回時的口袋名單」)
@@ -333,7 +354,27 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
 
     # 與「上一個換股日」的實際持有相比,算出買進/賣出/續抱(供操作建議)
     sel_dates = sorted(selections.keys())
-    prev_holdings = selections[sel_dates[-1]] if sel_dates else []
+    prev_holdings = selections[sel_dates[-2]] if len(sel_dates) > 1 else []
+    selection_pos = idx.get_loc(signal_date)
+    execution_pos = selection_pos + lag
+    selection_execution = (idx[execution_pos].strftime("%Y-%m-%d")
+                           if execution_pos < len(idx) else None)
+    changes = weights.diff().abs().sum(axis=1).gt(1e-12)
+    if len(changes):
+        changes.iloc[0] = weights.iloc[0].abs().sum() > 0
+    changed_dates = idx[changes.to_numpy()]
+    target_change_date = changed_dates[-1] if len(changed_dates) else signal_date
+    target_execution_pos = idx.get_loc(target_change_date) + lag
+    target_execution_date = (idx[target_execution_pos].strftime("%Y-%m-%d")
+                             if target_execution_pos < len(idx) else None)
+    quality_prices = dict(prices)
+    if "benchmark_df" in locals() and benchmark_df is not None:
+        quality_prices[benchmark_symbol] = benchmark_df
+    quality = data_quality(symbols, prices=quality_prices)
+    quality["signal_asof"] = idx[-1].strftime("%Y-%m-%d")
+    if idx[-1] < pd.Timestamp(quality["target_date"]):
+        quality["stale"] = True
+        quality["reasons"].append("模型交易日曆未達資料目標")
     buys = [s for s in held if s not in prev_holdings]
     sells = [s for s in prev_holdings if s not in held]
     holds = [s for s in held if s in prev_holdings]
@@ -359,6 +400,11 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
         "eval_start": perf["start"].strftime("%Y-%m-%d"),
         "eval_end": perf["end"].strftime("%Y-%m-%d"),
         "ranking": ranking,               # [(代號, 名稱, 動能)] 由強至弱(全部)
+        "score_mode": score_mode, "model_label": spec["label"],
+        "model_description": spec["description"], "score_kind": spec["score_kind"],
+        "validation_status": validation_status(score_mode),
+        "data_quality": quality,
+        "cost_per_turnover": cost,
         "holdings": holdings,             # 通過全部閘門、可實際進場的標的
         "candidates": candidates,         # 閘門前候選名單(僅供診斷)
         "held": held,                     # 過絕對動能閘門、真的進場的標的
@@ -371,12 +417,24 @@ def run_rotation(symbols=None, mom_days=None, top_k=None,
         "prev_holdings": prev_holdings,   # 上一換股日實際持有
         "buys": buys, "sells": sells, "holds": holds,  # 相對上期的異動
         "mom_days": mom_days, "top_k": top_k, "rebal_days": rebal_days,
+        "selection_date": signal_date.strftime("%Y-%m-%d"),
+        "selection_execution_date": selection_execution,
+        "selection_execution_pending": selection_execution is None,
+        "target_change_date": target_change_date.strftime("%Y-%m-%d"),
+        "target_execution_date": target_execution_date,
+        "target_execution_pending": target_execution_date is None,
+        "target_asof": idx[-1].strftime("%Y-%m-%d"),
+        "execution_lag": lag,
+        "execution_basis": f"資料日後第 {lag} 個交易日開盤；名單按換股週期沿用",
+        "net_returns": net_ret,
+        "target_weights": weights,
+        "deferred_trade_days": len(net_ret.attrs.get("deferred_dates", [])),
         "last_date": idx[-1].strftime("%Y-%m-%d") if len(idx) else "",
     }
 
 
 def analyze_stock(symbol, symbols=None, mom_days=None, top_k=None,
-                  abs_thresh=None) -> dict:
+                  abs_thresh=None, score_mode=None) -> dict:
     """
     「這檔符不符合輪動策略」的檢查(取代沒 edge 的 ML 燈號)。
     回傳:此檔在輪動池的動能排名、絕對動能、是否會被選/被閘門擋成現金,
@@ -386,6 +444,7 @@ def analyze_stock(symbol, symbols=None, mom_days=None, top_k=None,
     if not symbol:
         raise ValueError("代號不可空白")
     mom_days = mom_days or config.ROTATION_MOM_DAYS
+    score_mode, spec = model_spec(score_mode)
     top_k = top_k or config.ROTATION_TOP_K
     abs_thresh = (getattr(config, "ROTATION_ABS_THRESH", 0.0)
                   if abs_thresh is None else abs_thresh)
@@ -397,6 +456,17 @@ def analyze_stock(symbol, symbols=None, mom_days=None, top_k=None,
     pool = list(dict.fromkeys(list(symbols) + [symbol]))   # 確保 target 在池內可排名
     ret_df, mom_df, gate_df, names = _load_panel(
         pool, mom_days, getattr(config, "ROTATION_MIN_OBS", None))
+    prices = {s: load_ohlcv(s) for s in ret_df.columns}
+    original_momentum = mom_df.copy()
+    if score_mode != "production":
+        benchmark_prices = load_ohlcv(config.BENCHMARK_SYMBOL)
+        if benchmark_prices is None or benchmark_prices.empty:
+            raise RuntimeError("新模型需要 006208 的真實行情；請先更新資料。")
+        calendar = pd.DatetimeIndex(benchmark_prices["close"].dropna().index).sort_values()
+        closes = pd.DataFrame({s: p["close"] for s, p in prices.items()}).reindex(calendar)
+        mom_df = build_rank_scores(closes, score_mode)
+        gate_df = closes.pct_change(mom_days, fill_method=None)
+        original_momentum = build_rank_scores(closes, "production", mom_days=mom_days)
     if symbol not in mom_df.columns:
         raise RuntimeError(f"{symbol} 資料不足(上市太短或抓取失敗),無法分析")
 
@@ -408,15 +478,35 @@ def analyze_stock(symbol, symbols=None, mom_days=None, top_k=None,
     ranked = row.sort_values(ascending=False)
     rank = int(list(ranked.index).index(symbol) + 1)
     n = int(len(ranked))
-    mom = float(row[symbol])                      # 排名用動能(跳過近期)
+    score = float(row[symbol])
+    mom = float(original_momentum.loc[asof, symbol])
     g = gate_df.loc[asof].get(symbol)             # 閘門用原始動能
     passes_abs = bool(pd.notna(g) and float(g) > abs_thresh)
     in_top_k = rank <= top_k
-    selected = in_top_k and passes_abs
+    selected = in_top_k and (passes_abs or not getattr(config, "ROTATION_ABS_MOM", False))
+    passes_fastsell, passes_sox = True, True
+    if getattr(config, "ROTATION_FASTSELL_GATE", False):
+        try:
+            from core.chip_data import fastsell_z_panel
+            fastsell = fastsell_z_panel(pool, mom_df.index)
+            z = fastsell.loc[asof].get(symbol) if fastsell is not None else None
+            passes_fastsell = not (pd.notna(z) and z < config.ROTATION_FASTSELL_Z)
+        except Exception:
+            pass
+    if getattr(config, "ROTATION_SOX_GATE", False):
+        from core.market_regime import sox_regime_series
+        passes_sox = bool(sox_regime_series(mom_df.index, lag=0).loc[asof])
+    selected = selected and passes_fastsell and passes_sox
+    scheduled_selection = None
+    if score_mode == "buffered_momentum":
+        scheduled_selection = run_rotation(
+            symbols=symbols, mom_days=mom_days, top_k=top_k,
+            abs_thresh=abs_thresh, score_mode=score_mode)
+        selected = symbol in scheduled_selection["held"]
 
     # 個股價格/風險(用自己的還原收盤)
-    df = load_ohlcv(symbol)
-    close = df["close"].astype(float).sort_index()
+    df = prices[symbol]
+    close = df["close"].astype(float).sort_index().loc[:asof].dropna()
     ret = close.pct_change()
     last_close = float(close.iloc[-1])
     prev = float(close.iloc[-2]) if len(close) > 1 else last_close
@@ -432,23 +522,52 @@ def analyze_stock(symbol, symbols=None, mom_days=None, top_k=None,
     mdd = float((eqw / eqw.cummax() - 1.0).min()) if len(eqw) else 0.0
 
     # 判定(台股慣例:符合/強=紅、弱=綠、轉現金=綠)
-    if selected:
+    if not passes_sox:
+        vshort, color = "市場閘門轉現金", "#2E7D32"
+        note = "SOX 跌破市場均線，當日目標轉現金；仍須依資料延遲於後續開盤執行。"
+    elif not passes_fastsell:
+        vshort, color = "外資急賣擋成現金", "#2E7D32"
+        note = "此外資持股變化觸發急賣閘門，目前不納入新倉。"
+    elif selected:
         vshort, color = "符合策略", "#D32F2F"
-        note = f"輪動這期會選它:動能前 {top_k} 強(第 {rank}/{n})且絕對動能為正"
+        note = f"目前排名前 {top_k} 強(第 {rank}/{n})且通過已啟用的閘門。"
     elif in_top_k and not passes_abs:
         vshort, color = "會被擋成現金", "#2E7D32"
         note = f"相對排名前面(第 {rank}/{n}),但絕對動能翻負 → 閘門讓它轉現金、不進場"
     elif passes_abs and not in_top_k:
         vshort, color = "強度不足", "#9E9E9E"
-        note = f"絕對動能為正,但沒進前 {top_k} 強(第 {rank}/{n})→ 輪動不會選"
+        note = f"絕對動能為正，但目前沒進前 {top_k} 強(第 {rank}/{n})。"
     else:
         vshort, color = "不符合", "#2E7D32"
-        note = f"動能偏弱(第 {rank}/{n})→ 輪動不會選它"
+        note = f"目前動能偏弱(第 {rank}/{n})。"
+
+    if score_mode != "production":
+        note = note.replace("動能前", "模型排名前").replace("相對排名前面", "模型排名前面")
+    if score_mode != "buffered_momentum":
+        note += "此處為目前條件檢查；實際排定名單與成交日期請參考策略輪動頁。"
+    if score_mode == "buffered_momentum":
+        vshort = "本期模型入選" if selected else "本期未入選"
+        color = "#D32F2F" if selected else "#9E9E9E"
+        note = (f"{spec['label']}：依 {scheduled_selection['selection_date']} 排定名單，"
+                + ("本期目標包含此股。" if selected else "本期目標不包含此股。")
+                + "上期模型名單可保留至前 2K 名，與輪動頁一致；顯示目標不代表已成交。")
+    quality_prices = dict(prices)
+    quality_prices[config.BENCHMARK_SYMBOL] = load_ohlcv(config.BENCHMARK_SYMBOL)
+    quality = data_quality(pool, prices=quality_prices)
+    quality["signal_asof"] = str(asof.date())
+    if asof < pd.Timestamp(quality["target_date"]):
+        quality["stale"] = True
+        quality["reasons"].append("個股模型訊號未達資料目標")
 
     return {
         "symbol": symbol, "name": names.get(symbol, "") or "",
         "asof": asof.strftime("%Y-%m-%d"),
         "rank": rank, "n": n, "mom": mom, "mom5": _mr(5), "mom20": _mr(20),
+        "score": score, "absolute_momentum": float(g) if pd.notna(g) else float("nan"),
+        "score_mode": score_mode, "model_label": spec["label"], "score_kind": spec["score_kind"],
+        "model_description": spec["description"], "validation_status": validation_status(score_mode),
+        "data_quality": quality,
+        "passes_fastsell": passes_fastsell, "passes_sox": passes_sox,
         "in_top_k": in_top_k, "passes_abs": passes_abs, "selected": selected,
         "top_k": top_k, "mom_days": mom_days,
         "last_close": last_close, "day_change": day_chg,

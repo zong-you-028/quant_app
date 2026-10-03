@@ -440,10 +440,12 @@ def _finmind_get(dataset: str, data_id: str, start: str) -> pd.DataFrame:
     raise RuntimeError(f"FinMind {dataset}/{data_id} 更新失敗: {last_error}")
 
 
-def _twse_recent_prices(symbol: str, asof=None) -> pd.DataFrame:
-    """Fetch current/previous month OHLCV from the official TWSE endpoint."""
-    end = pd.Timestamp(asof or _dt.datetime.now()).normalize()
-    months = [end, end - pd.DateOffset(months=1)]
+def _twse_recent_prices(symbol: str, asof=None, start=None) -> pd.DataFrame:
+    """Fetch every requested month, so an old cache is not patched with one bar."""
+    end = pd.Timestamp(asof or _last_trading_day()).normalize()
+    first = (pd.Timestamp(start).normalize() if start is not None
+             else end - pd.DateOffset(months=1))
+    months = pd.date_range(first.replace(day=1), end.replace(day=1), freq="MS")[::-1]
     rows = []
     for month in months:
         resp = requests.get(
@@ -456,7 +458,11 @@ def _twse_recent_prices(symbol: str, asof=None) -> pd.DataFrame:
         resp.raise_for_status()
         js = resp.json()
         if js.get("stat") != "OK":
+            if start is not None:
+                raise RuntimeError(f"TWSE {symbol} {month:%Y-%m} 缺少補段行情：{js.get('stat', '無狀態')}")
             continue
+        if start is not None and not js.get("data"):
+            raise RuntimeError(f"TWSE {symbol} {month:%Y-%m} 補段行情為空")
         for values in js.get("data", []):
             if len(values) < 9:
                 continue
@@ -475,7 +481,15 @@ def _twse_recent_prices(symbol: str, asof=None) -> pd.DataFrame:
     out = pd.DataFrame(rows)
     if out.empty:
         raise RuntimeError(f"TWSE 查無 {symbol} 最近行情")
-    return out.dropna(subset=["close"]).drop_duplicates("date").sort_values("date")
+    out = out.dropna(subset=["close"]).drop_duplicates("date").sort_values("date")
+    dates = pd.to_datetime(out["date"])
+    within = dates <= end
+    if start is not None:
+        within &= dates >= first
+    out = out.loc[within]
+    if out.empty:
+        raise RuntimeError(f"TWSE 查無 {symbol} 指定區段行情")
+    return out
 
 
 def _twse_latest_snapshot() -> pd.DataFrame:
@@ -526,12 +540,17 @@ def _merge_twse_prices(symbol: str, fresh: pd.DataFrame) -> None:
     combined = pd.concat([old, fresh], ignore_index=True)
     combined = combined.drop_duplicates("date", keep="last").sort_values("date")
     combined = _adjust_corporate_actions(combined)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM ohlcv WHERE symbol = ?", (symbol,))
-    conn.commit()
-    combined.to_sql("ohlcv", conn, if_exists="append", index=False)
-    conn.commit()
-    conn.close()
+    try:
+        # One transaction: failed insertion must not erase a usable cache.
+        with conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO ohlcv "
+                "(symbol,date,open,high,low,close,volume) VALUES (?,?,?,?,?,?,?)",
+                combined[["symbol", "date", "open", "high", "low", "close", "volume"]]
+                .itertuples(index=False, name=None),
+            )
+    finally:
+        conn.close()
 
 
 def fetch_twse_recent_data(symbol: str) -> None:
@@ -541,6 +560,15 @@ def fetch_twse_recent_data(symbol: str) -> None:
 
 def fetch_twse_latest_data(symbol: str) -> None:
     """Update one symbol from the cached all-market snapshot."""
+    before = last_ohlcv_date(symbol)
+    expected = _last_trading_day()
+    if before is not None and len(pd.bdate_range(before.normalize(), expected)) > 2:
+        # Current/previous month alone is insufficient for a multi-month gap.
+        # Do not advance MAX(date) until the whole missing interval is fetched.
+        fresh = _twse_recent_prices(
+            symbol, asof=expected, start=before.normalize() + pd.Timedelta(days=1))
+        _merge_twse_prices(symbol, fresh)
+        return
     snapshot = _twse_latest_snapshot()
     fresh = snapshot[snapshot["symbol"] == symbol]
     if fresh.empty:
@@ -555,6 +583,48 @@ def _refresh_market_data(symbol: str) -> None:
         fetch_twse_latest_data(symbol)
     else:
         fetch_real_data(symbol)
+    if chip_needs_update(symbol):
+        fetch_chip_data(symbol)
+
+
+def _shareholding_frame(symbol: str, start: str) -> pd.DataFrame:
+    """Validate the existing FinMind shareholding schema before writing."""
+    sh = _finmind_get("TaiwanStockShareholding", symbol, start)
+    required = {"date", "ForeignInvestmentShares", "NumberOfSharesIssued"}
+    if sh.empty or not required <= set(sh.columns):
+        raise RuntimeError(f"FinMind 查無 {symbol} 有效外資持股資料")
+    dates = pd.to_datetime(sh["date"], errors="coerce")
+    chip = pd.DataFrame({
+        "symbol": symbol, "date": dates.dt.strftime("%Y-%m-%d"),
+        "big_shares": pd.to_numeric(sh["ForeignInvestmentShares"], errors="coerce"),
+        "total_shares": pd.to_numeric(sh["NumberOfSharesIssued"], errors="coerce"),
+    }).dropna()
+    chip = chip[(chip["total_shares"] > 0) & (chip["big_shares"] >= 0)
+                & (chip["big_shares"] <= chip["total_shares"])]
+    if chip.empty:
+        raise RuntimeError(f"FinMind {symbol} 外資持股資料皆無效")
+    return chip.drop_duplicates("date", keep="last").sort_values("date")
+
+
+def _store_chip_frame(conn, chip):
+    conn.executemany(
+        "INSERT OR REPLACE INTO chip_weekly "
+        "(symbol,date,big_shares,total_shares) VALUES (?,?,?,?)",
+        chip[["symbol", "date", "big_shares", "total_shares"]].itertuples(index=False, name=None),
+    )
+
+
+def fetch_chip_data(symbol: str, start: str = None) -> None:
+    """Refresh chips independently; unavailable responses preserve old rows."""
+    latest = last_chip_date(symbol)
+    start = start or (latest.strftime("%Y-%m-%d") if latest is not None else config.FINMIND_START)
+    chip = _shareholding_frame(symbol, start)
+    conn = get_conn()
+    try:
+        with conn:
+            _store_chip_frame(conn, chip)
+    finally:
+        conn.close()
 
 
 def _adjust_corporate_actions(ohlcv: pd.DataFrame) -> pd.DataFrame:
@@ -627,33 +697,28 @@ def fetch_real_data(symbol: str, start: str = None) -> None:
     # 還原股價:清理壞列 + 回溯還原除權息/分割/減資跳空(免費版無還原股價,故自行處理)
     ohlcv = _adjust_corporate_actions(ohlcv)
 
-    # 2) 籌碼:外資持股 -> 大戶集中度代理(抓不到就留空,_add_chip_features 會補 0)
+    # 2) Full price-history refresh may proceed while unavailable chips remain
+    # cached. Batch updates separately verify and report chip freshness.
     try:
-        sh = _finmind_get("TaiwanStockShareholding", symbol, start)
+        chip = _shareholding_frame(symbol, start)
     except Exception:
-        sh = pd.DataFrame()
-    if not sh.empty and {"ForeignInvestmentShares", "NumberOfSharesIssued"} <= set(sh.columns):
-        chip = pd.DataFrame({
-            "symbol": symbol,
-            "date": sh["date"],
-            "big_shares": pd.to_numeric(sh["ForeignInvestmentShares"], errors="coerce"),
-            "total_shares": pd.to_numeric(sh["NumberOfSharesIssued"], errors="coerce"),
-        }).dropna()
-        chip = chip[chip["total_shares"] > 0]
-    else:
         chip = pd.DataFrame(columns=["symbol", "date", "big_shares", "total_shares"])
 
-    # 3) 寫入 DB(先刪同標的舊資料,避免主鍵衝突)
+    # 3) Replace the price history atomically; chips are upserted, never erased
+    # merely because an upstream chip request failed or returned no rows.
     conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM ohlcv WHERE symbol = ?", (symbol,))
-    cur.execute("DELETE FROM chip_weekly WHERE symbol = ?", (symbol,))
-    conn.commit()
-    ohlcv.to_sql("ohlcv", conn, if_exists="append", index=False)
-    if not chip.empty:
-        chip.to_sql("chip_weekly", conn, if_exists="append", index=False)
-    conn.commit()
-    conn.close()
+    try:
+        with conn:
+            conn.execute("DELETE FROM ohlcv WHERE symbol = ?", (symbol,))
+            conn.executemany(
+                "INSERT INTO ohlcv (symbol,date,open,high,low,close,volume) VALUES (?,?,?,?,?,?,?)",
+                ohlcv[["symbol", "date", "open", "high", "low", "close", "volume"]]
+                .itertuples(index=False, name=None),
+            )
+            if not chip.empty:
+                _store_chip_frame(conn, chip)
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -771,6 +836,30 @@ def _last_trading_day(asof: _dt.datetime = None) -> pd.Timestamp:
     return pd.Timestamp(d)
 
 
+def last_chip_date(symbol: str):
+    """Latest stored shareholding date; read without changing cached rows."""
+    ensure_db()
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT MAX(date) FROM chip_weekly WHERE symbol = ?", (symbol,)).fetchone()
+        return pd.Timestamp(row[0]) if row and row[0] else None
+    finally:
+        conn.close()
+
+
+def _chip_required(symbol: str) -> bool:
+    return (config.DATA_SOURCE == "finmind" and getattr(config, "ROTATION_FASTSELL_GATE", False)
+            and symbol != config.BENCHMARK_SYMBOL)
+
+
+def chip_needs_update(symbol: str, asof: _dt.datetime = None) -> bool:
+    """A conservative 7-calendar-day allowance; not a verified release rule."""
+    if not _chip_required(symbol):
+        return False
+    last = last_chip_date(symbol)
+    return last is None or last.normalize() + pd.Timedelta(days=7) < _last_trading_day(asof)
+
+
 def needs_update(symbol: str, asof: _dt.datetime = None) -> bool:
     """此檔是否落後最近交易日(合成資料來源時一律不更新)。"""
     if config.DATA_SOURCE != "finmind":
@@ -778,7 +867,8 @@ def needs_update(symbol: str, asof: _dt.datetime = None) -> bool:
     last = last_ohlcv_date(symbol)
     if last is None:
         return True
-    return last.normalize() < _last_trading_day(asof).normalize()
+    return (last.normalize() < _last_trading_day(asof).normalize()
+            or chip_needs_update(symbol, asof))
 
 
 def update_data(symbol: str, force: bool = False) -> str:
@@ -790,11 +880,14 @@ def update_data(symbol: str, force: bool = False) -> str:
         return "current"
     try:
         before = last_ohlcv_date(symbol)
+        before_chip = last_chip_date(symbol) if _chip_required(symbol) else None
         _refresh_market_data(symbol)
         after = last_ohlcv_date(symbol)
-        if after is None or after < _last_trading_day():
+        if after is None or after < _last_trading_day() or chip_needs_update(symbol):
             return "stale"
-        return "updated" if before is None or after > before else "current"
+        after_chip = last_chip_date(symbol) if _chip_required(symbol) else None
+        chip_advanced = after_chip is not None and (before_chip is None or after_chip > before_chip)
+        return "updated" if before is None or after > before or chip_advanced else "current"
     except Exception:
         return "failed"
 
@@ -815,7 +908,8 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
            "expected_asof": expected.strftime("%Y-%m-%d"),
            "failed_symbols": [], "stale_symbols": [], "errors": {},
            "retried_symbols": [], "recovered": 0,
-           "data_dates": {}, "calendar_note": "更新目標僅排除週末，未套用休市日曆"}
+           "data_dates": {}, "chip_dates": {}, "stale_chip_symbols": [],
+           "calendar_note": "更新目標僅排除週末，未套用休市日曆；籌碼容許7日延遲"}
     # A new target date or stale data must never be hidden by the six-hour cache.
     if not force and not ignore_throttle:
         ts = _meta_get("last_refresh")
@@ -828,6 +922,7 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
             except (ValueError, TypeError):
                 pass
     initial_dates = {}
+    initial_chip_dates = {}
     statuses = {}
     pending = syms
     for attempt in range(3):
@@ -847,16 +942,21 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
             try:
                 if symbol not in initial_dates:
                     initial_dates[symbol] = last_ohlcv_date(symbol)
+                    initial_chip_dates[symbol] = last_chip_date(symbol) if _chip_required(symbol) else None
                 before = initial_dates[symbol]
                 if not res["throttled"] and (force or needs_update(symbol)):
                     refresh_attempted = True
                     _refresh_market_data(symbol)
                 after = last_ohlcv_date(symbol)
+                after_chip = last_chip_date(symbol) if _chip_required(symbol) else None
                 res["data_dates"][symbol] = after.strftime("%Y-%m-%d") if after is not None else None
+                res["chip_dates"][symbol] = after_chip.strftime("%Y-%m-%d") if after_chip is not None else None
                 res["errors"].pop(symbol, None)
-                if after is None or after.normalize() < expected:
+                chip_stale = _chip_required(symbol) and (after_chip is None or after_chip + pd.Timedelta(days=7) < expected)
+                if after is None or after.normalize() < expected or chip_stale:
                     status = "stale"
-                elif before is None or after > before:
+                elif (before is None or after > before or (after_chip is not None
+                      and (initial_chip_dates[symbol] is None or after_chip > initial_chip_dates[symbol]))):
                     status = "updated"
                 else:
                     status = "current"
@@ -878,6 +978,15 @@ def update_symbols(symbols, force: bool = False, ignore_throttle: bool = False,
         res[status] += 1
         if status in ("failed", "stale"):
             res[f"{status}_symbols"].append(symbol)
+        if _chip_required(symbol):
+            try:
+                chip_date = last_chip_date(symbol)
+                res["chip_dates"][symbol] = chip_date.strftime("%Y-%m-%d") if chip_date is not None else None
+                if chip_date is None or chip_date + pd.Timedelta(days=7) < expected:
+                    res["stale_chip_symbols"].append(symbol)
+            except Exception:
+                res["chip_dates"][symbol] = None
+                res["stale_chip_symbols"].append(symbol)
     res["recovered"] = sum(statuses[s] in ("updated", "current")
                            for s in res["retried_symbols"])
     dates = [d for d in res["data_dates"].values() if d]
@@ -897,6 +1006,7 @@ def format_update_status(result: dict) -> str:
     return (
         f"資料日 {oldest}～{newest} · 更新 {result['updated']} 檔 · "
         f"已達目標 {result['current']}{recovery} · 尚未到目標 {result.get('stale', 0)} · "
+        f"籌碼過期 {len(result.get('stale_chip_symbols', []))} · "
         f"失敗 {result['failed']}（目標 {result.get('expected_asof', '未知')}，"
         "僅排除週末；延遲來源或休市可能尚無新資料）"
     )
@@ -916,6 +1026,7 @@ def ensure_data(symbol: str, force: bool = False) -> str:
             fetch_real_data(symbol)
             if has_symbol(symbol):
                 return "finmind"
+            raise RuntimeError(f"未取得 {symbol} 真實行情，無法產生選股結果。")
         except Exception as ex:
             if not config.FALLBACK_TO_SYNTHETIC:
                 raise

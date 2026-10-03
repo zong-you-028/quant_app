@@ -5,21 +5,47 @@ test_journal.py - 驗證投資紀錄(交易日誌)CRUD + 報酬彙總邏輯
 summary 已實現損益 -> delete_trade 還原,最後確認 DB 乾淨。
 不連網(報酬以本地 DB 收盤或賣出價計算),純函式易測。
 
-★ 測試隔離:把 DB 指向臨時檔,絕不碰使用者真實的 data/market.db
-  (get_conn() 每次動態讀 config.DB_PATH,故在 import journal 前改即可)。
+★ 測試隔離:每個測試使用獨立臨時 DB、明確行情與禁網路 fixture。
+  不依賴正式資料種子或合成行情 fallback，也不改動其他測試的 DB 設定。
 """
-import os
-import tempfile
+import pandas as pd
+import pytest
 
 import config
+from core import data_pipeline, journal
 
-# 行情(2330 等)仍需從真實 DB 複製過來給 analyze 用?不需要:journal 測試只用
-# 自建的買賣紀錄與合成 TEST。直接整個 journal/行情都導到臨時 DB,完全隔離。
-config.DB_PATH = os.path.join(tempfile.gettempdir(), "quant_test_journal.db")
-if os.path.exists(config.DB_PATH):
-    os.remove(config.DB_PATH)
 
-from core import journal
+@pytest.fixture(autouse=True)
+def isolated_journal_database(tmp_path, monkeypatch):
+    """Give journal code real SQLite tables and deterministic test-only quotes."""
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "journal.db"))
+    monkeypatch.setattr(config, "FALLBACK_TO_SYNTHETIC", False)
+    monkeypatch.delenv("JOURNAL_DATABASE_URL", raising=False)
+    monkeypatch.setattr(data_pipeline, "_INITIALIZED_PATHS", set())
+    monkeypatch.setattr(data_pipeline, "_NAME_CACHE", {})
+    monkeypatch.setattr(data_pipeline, "_hydrate_market_seed", lambda conn: None)
+    network_calls = []
+
+    def forbidden_network(*args, **kwargs):
+        network_calls.append(args)
+        raise AssertionError("Journal tests must use their explicit local quote fixture")
+
+    monkeypatch.setattr(data_pipeline.requests, "get", forbidden_network)
+    data_pipeline.init_db()
+    dates = pd.bdate_range("2025-12-31", "2026-10-02").strftime("%Y-%m-%d")
+    with data_pipeline.get_conn() as conn:
+        for symbol, name, price in (("2330", "台積電", 650.),
+                                    ("TEST", "測試股票", 100.),
+                                    ("CA", "公司行動測試", 50.)):
+            conn.executemany(
+                "INSERT INTO ohlcv (symbol,date,open,high,low,close,volume) "
+                "VALUES (?,?,?,?,?,?,?)",
+                [(symbol, date, price, price, price, price, 1000.) for date in dates],
+            )
+            conn.execute("INSERT INTO stock_info (symbol,name) VALUES (?,?)", (symbol, name))
+    journal.init_journal()
+    yield
+    assert not network_calls, "Journal tests attempted to fetch an unseeded test symbol"
 
 
 def test_journal_roundtrip():
@@ -108,7 +134,7 @@ def test_dca_plan_autofill():
     for p in journal.list_dca_plans():
         journal.delete_dca_plan(p["id"])
     n_before = len(journal.list_trades())
-    # 用合成資料的 TEST 標的,每月扣款,從過去日期回補到指定「今天」
+    # 使用 fixture 明確提供的 TEST 歷史價，從過去日期回補到指定「今天」。
     pid = journal.add_dca_plan("TEST", 5000, "monthly", "2026-01-01")
     plan = next(p for p in journal.list_dca_plans() if p["id"] == pid)
     assert plan["active"] and plan["freq_label"] == "每月"
@@ -216,14 +242,42 @@ def test_current_assets_cash_and_transactions():
     assert abs(position["shares"] - 7) < 1e-9
     assert abs(position["cost"] - 800) < 1e-6
     assert abs(position["average_cost"] - (800 / 7)) < 1e-6
+    assert position["market_value"] == 700, "剩餘 7 股按 fixture 最新收盤 100 計價"
     s = journal.summary()
     assert abs(s["cash"] - journal.cash_balance()) < 1e-6
     assert abs(s["total_assets"] - (s["market_value"] + s["cash"])) < 1e-6
+    assert s["total_assets"] == base_cash + 101300
 
     for trade in journal.list_trades():
         if trade["id"] not in before_ids:
             journal.delete_trade(trade["id"])
     journal.set_cash_balance(base_cash, "測試清理")
+
+
+def test_cash_dividend_and_stock_split():
+    """現金股利進現金；分割只改股數與單價，不改總成本。"""
+    journal.init_journal()
+    base_cash = journal.cash_balance()
+    old_id = journal.add_current_asset("CA", 100, 50, "2026-01-01")
+    new_id = journal.add_current_asset("CA", 10, 80, "2026-08-20")
+
+    dividend = journal.record_cash_dividend("CA", 2.5, "2026-08-01")
+    assert dividend["shares"] == 100
+    assert dividend["cash"] == 250
+    assert abs(journal.cash_balance() - (base_cash + 250)) < 1e-6
+    assert journal.summary()["dividend_income"] >= 250
+
+    split = journal.record_stock_split("CA", 2, "2026-08-01")
+    assert split["before"] == 100 and split["after"] == 200
+    trades = {t["id"]: t for t in journal.list_trades()}
+    assert trades[old_id]["shares"] == 200
+    assert trades[old_id]["buy_price"] == 25
+    assert trades[old_id]["amount"] == 5000
+    assert trades[new_id]["shares"] == 10, "公司行動日後買進的 lot 不可被調整"
+
+    journal.delete_trade(old_id)
+    journal.delete_trade(new_id)
+    journal.set_cash_balance(base_cash, "公司行動測試清理")
 
 
 def test_unpriced_holding_is_not_reported_as_cost_value():
@@ -242,12 +296,4 @@ def test_unpriced_holding_is_not_reported_as_cost_value():
 
 
 if __name__ == "__main__":
-    test_journal_roundtrip()
-    test_add_buy_validation()
-    test_total_assets_and_snapshot()
-    test_summary_on_sell()
-    test_dca_plan_autofill()
-    test_update_partial_reopen()
-    test_current_assets_cash_and_transactions()
-    print("投資紀錄(journal)CRUD + 總資產 + 定期定額 + 手動編輯/部分賣出/復原 PASSED。")
-    test_unpriced_holding_is_not_reported_as_cost_value()
+    raise SystemExit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))

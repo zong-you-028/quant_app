@@ -6,3 +6,7 @@ dist/
 .env
 .venv/
 venv/
+
+# Local chat checkpoint and prior UI evidence from the non-isolated preview.
+WORK_PROGRESS.md
+research/feasibility_2026_10_03/ui_*

@@ -60,10 +60,12 @@ def sox_regime_series(index, ma=None, lag=None):
     return up.reindex(pd.DatetimeIndex(index), method="ffill").shift(lag).fillna(1.0)
 
 
-def sox_status(ma=None) -> dict:
+def sox_status(ma=None, asof=None) -> dict:
     """最新市場燈狀態:{ok, risk_on, close, ma, ma_len, asof, pct(高出均線%)}。"""
     ma = ma or getattr(config, "ROTATION_SOX_MA", 100)
     s = load_sox()
+    if s is not None and asof is not None:
+        s = s.loc[s.index <= pd.Timestamp(asof)]
     if s is None or len(s) < ma:
         return {"ok": False, "risk_on": True}
     ma_val = float(s.rolling(ma).mean().iloc[-1])

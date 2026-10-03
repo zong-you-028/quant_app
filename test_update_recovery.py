@@ -14,6 +14,7 @@ def state(monkeypatch):
         target=pd.Timestamp("2026-09-24"), dates={}, saved=[], sleeps=[],
     )
     monkeypatch.setattr(dp.config, "DATA_SOURCE", "finmind")
+    monkeypatch.setattr(dp.config, "ROTATION_FASTSELL_GATE", False)
     monkeypatch.setattr(dp, "_last_trading_day", lambda *args: state.target)
     monkeypatch.setattr(dp, "last_ohlcv_date", state.dates.get)
     monkeypatch.setattr(dp, "_meta_get", lambda key: None)
