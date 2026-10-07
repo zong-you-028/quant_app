@@ -14,6 +14,7 @@ from core import data_pipeline as dp, rotation, paper_validation as pv
 
 
 def test_current_short_listing_is_fresh_but_cannot_be_selected(monkeypatch):
+    monkeypatch.setattr(dp, "_last_trading_day", lambda *args: pd.Timestamp("2026-10-02"))
     calendar = pd.bdate_range(end="2026-10-02", periods=350)
     values = 100 * np.exp(np.arange(len(calendar)) * .001)
     old = pd.DataFrame({"open": values, "high": values, "low": values, "close": values, "volume": 1000.}, index=calendar)

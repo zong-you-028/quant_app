@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-07
+
+- Added an app-only Taipei daily update policy backed by SQLite: committed successful downloads are reused across clicks and processes; failures and unfinished symbols can resume without refetching completed symbols. Same-day newer targets remain visibly stale until the next day; current-cache checks do not consume the daily allowance.
+- Persisted SOX closes in `market_index_prices` and synchronized the existing CSV; added transactional DB leases for concurrent app sessions. Frozen model, research acquisition sources and both prospective archive identities are unchanged.
+- Updated the UI and usage guide to show database persistence, daily reuse and the recommended post-18:00 update time. Added isolated persistence/restart/resume/concurrency tests.
+- Passed 271 isolated regression tests and 34 desktop/mobile checks; the controlled gap was committed once and reused across a fresh browser session, with no formal DB access. Read-only archive identity checks matched both existing experiment heads.
+
 ## 2026-10-04
 
 - Expanded the single app pool to a fixed snapshot of 150 quoted ordinary shares by estimated issued-share market cap: 126 TWSE and 24 TPEx. Archived official responses, explicit unpriced exclusions, private-share/listed-cap differences and membership bias limitations. Holdings remain capped at eight.

@@ -36,7 +36,8 @@ matplotlib.rcParams["axes.unicode_minus"] = False   # 負號正常顯示(避免�
 import flet as ft
 
 import config
-from core.data_pipeline import ensure_data, get_stock_name, load_ohlcv, update_symbols, format_update_status
+from core.data_pipeline import ensure_data, get_stock_name, load_ohlcv, format_update_status
+from core.daily_market_update import update_symbols, refresh_sox
 from core.exit_radar import RadarSettings, analyze_exit_radar
 from core import rotation
 from core import journal
@@ -1468,7 +1469,7 @@ def _build_app(page: ft.Page, on_logout=None):
         _set_button_label(update_btn, "更新中…")
         update_progress.visible = True
         update_progress.value = 0
-        scan_msg.value = "只補落後行情及外資持股，已完成資料會保留。"
+        scan_msg.value = "新行情會寫入資料庫；本日已完成的標的不重抓，只續抓未完成部分。"
         scan_msg.color = getattr(C, "GREY_700", "#616161")
         page.update()
         loop = asyncio.get_running_loop()
@@ -1510,8 +1511,7 @@ def _build_app(page: ft.Page, on_logout=None):
             if not res.get("busy") and not res.get("time_budget_reached"):
                 report(len(targets), len(targets), "SOX", "更新費半市場資料")
                 try:
-                    from core import market_regime
-                    sox = await asyncio.to_thread(market_regime.refresh_sox, raise_errors=True)
+                    sox = await asyncio.to_thread(refresh_sox, raise_errors=True)
                     if sox is None or sox.empty:
                         raise RuntimeError("沒有可用費半資料")
                 except Exception as ex:
@@ -1519,6 +1519,14 @@ def _build_app(page: ft.Page, on_logout=None):
             elif res.get("time_budget_reached"):
                 sox_error = "本批時間已到，費半待下次檢查。"
             scan_msg.value = format_update_status(res)
+            if res.get("daily_skipped_symbols"):
+                scan_msg.value += f"\n本日已保存 {len(res['daily_skipped_symbols'])} 檔，直接讀取資料庫，未重複下載。"
+                if (res.get("stale") and not res.get("failed") and not res.get("pending")
+                        and set(res.get("stale_symbols", [])).issubset(res["daily_skipped_symbols"])):
+                    scan_msg.value += "\n本日已成功更新，新的更新目標留待明日；建議每日台北時間18:00後更新。"
+                    final_label = "明日再更新"
+            if not res.get("busy"):
+                scan_msg.value += "\n成功取得的行情及籌碼已寫入資料庫；費半使用資料庫與本機快取。"
             if res.get("pending") and not res.get("busy"):
                 scan_msg.value += "\n已完成資料已保存，按「繼續更新未完成資料」接續。"
                 final_label = "繼續更新未完成資料"
@@ -2008,7 +2016,7 @@ def _build_app(page: ft.Page, on_logout=None):
     usage_guide = ft.ExpansionTile(
         title=ft.Text("使用流程", size=13, weight=ft.FontWeight.BOLD),
         controls=[ft.Container(content=ft.Column([
-            ft.Text("1. 啟動會自動檢查最新資料，頂部顯示進度。也可按「更新每日資料」；若有待續抓或失敗，按更新按鈕接續，確認資料已達目標後再計算。", size=12),
+            ft.Text("1. 啟動會檢查資料庫；每檔本日成功更新後不重抓，隔天才更新。若有待續抓或失敗，按「更新每日資料」只接續未完成部分，確認實際資料日期後再計算。", size=12),
             ft.Text("2. 按「計算輪動名單」，查看成本後績效、排名及閘門結果。", size=12),
             ft.Text("3. 查看「我的持倉核對」的目前應持有、應保留、待補入、依模型應退出；名單最多 8 檔。前 16 名只是續留範圍。核對目標成交日，待執行目標到執行時才切換。", size=12),
             ft.Text("4. 實際成交後，到「投資紀錄」如實記錄交易的成交價與股數。", size=12),

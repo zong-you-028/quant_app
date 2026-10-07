@@ -135,6 +135,7 @@ class FakePage:
 
 
 def build_app(monkeypatch):
+    monkeypatch.setattr(app, "refresh_sox", lambda **kwargs: pd.Series([100.]))
     for method in ("list_trades", "positions", "list_asset_history", "list_dca_plans"):
         monkeypatch.setattr(app.journal, method, lambda: [])
     monkeypatch.setattr(app.journal, "cash_balance", lambda: 0.)
@@ -177,7 +178,7 @@ def test_single_active_model_update_invalidation_and_stale_callback_guard(monkey
     add.on_click(None)
     assert all(kind != "buy" for kind, _ in seen)
     from core import market_regime
-    monkeypatch.setattr(market_regime, "refresh_sox", lambda **kwargs: pd.Series([100.]))
+    monkeypatch.setattr(app, "refresh_sox", lambda **kwargs: pd.Series([100.]))
     monkeypatch.setattr(app, "update_symbols", lambda *args, **kwargs: {"stale": 1, "failed": 0})
     monkeypatch.setattr(app, "format_update_status", lambda result: "尚未達更新目標")
     asyncio.run(button(page.controls, "更新每日資料").on_click(None))
@@ -246,7 +247,7 @@ def test_startup_update_shared_progress_no_duplicate_holdings_fetch(monkeypatch)
     monkeypatch.setattr(FakePage, "update", lambda page: frames.append(texts(page.controls)))
     page = build_app(monkeypatch)
     monkeypatch.setattr(app.journal, "refresh_open_market_data", lambda: pytest.fail("must not download holdings twice"))
-    monkeypatch.setattr(market_regime, "refresh_sox", lambda **kwargs: pd.Series([100.]))
+    monkeypatch.setattr(app, "refresh_sox", lambda **kwargs: pd.Series([100.]))
 
     def update(symbols, **kwargs):
         calls.append((symbols, kwargs))
@@ -279,7 +280,7 @@ def test_sox_failure_is_visible_and_controls_recover(monkeypatch):
     page = build_app(monkeypatch)
     monkeypatch.setattr(app, "update_symbols", lambda *a, **kw: {"failed": 0, "stale": 0})
     monkeypatch.setattr(app, "format_update_status", lambda r: "行情已更新")
-    monkeypatch.setattr(market_regime, "refresh_sox", lambda **kw: (_ for _ in ()).throw(RuntimeError("source timeout")))
+    monkeypatch.setattr(app, "refresh_sox", lambda **kw: (_ for _ in ()).throw(RuntimeError("source timeout")))
     asyncio.run(button(page.controls, "更新每日資料").on_click(None))
     assert "費半更新失敗：source timeout" in texts(page.controls)
     assert not button(page.controls, "重試未完成資料").disabled

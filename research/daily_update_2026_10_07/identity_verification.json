@@ -1,0 +1,11 @@
+{
+  "status": "unchanged",
+  "new150_identity_matches": true,
+  "old50_head": "95c6f885f329b41175e9142e4dda10e8a299bf1c8dc797e209ac9e208831c5c7",
+  "new150_head": "e36eb2ff22f26840ba946e3577bc6e415ca0bafb29709bf27375c358631757b9",
+  "old50_events": 1,
+  "new150_events": 1,
+  "no_capture_or_backfill": true,
+  "no_database_access": true,
+  "app_only_new_module": "core/daily_market_update.py"
+}
