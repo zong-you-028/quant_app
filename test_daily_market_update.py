@@ -48,6 +48,28 @@ def install_source(monkeypatch):
     return calls
 
 
+def test_saved_hook_sees_committed_quotes_and_never_runs_for_daily_cache(store, monkeypatch):
+    calls = install_source(monkeypatch)
+    seen = []
+    def saved(symbol):
+        with closing(dp.get_conn()) as conn:
+            seen.append((symbol, conn.execute("SELECT close FROM ohlcv WHERE symbol=?", (symbol,)).fetchone()[0]))
+    daily.update_symbols(["2330", "2317"], max_attempts=1, on_saved=saved)
+    daily.update_symbols(["2330", "2317"], force=True, max_attempts=1, on_saved=saved)
+    assert calls == ["2330", "2317"]
+    assert seen == [("2330", 100.), ("2317", 100.)]
+
+
+def test_asset_write_failure_does_not_retry_successful_market_download(store, monkeypatch):
+    calls = install_source(monkeypatch)
+    def unavailable(symbol):
+        raise RuntimeError("asset history unavailable")
+    result = daily.update_symbols(["2330"], max_attempts=2, on_saved=unavailable)
+    assert calls == ["2330"] and result["updated"] == 1 and result["failed"] == 0
+    assert result["on_saved_errors"] == {"2330": "asset history unavailable"}
+    assert daily.update_symbols(["2330"], on_saved=unavailable)["daily_skipped_symbols"] == ["2330"]
+
+
 def test_latest_quotes_and_chips_are_committed_and_same_day_force_cannot_redownload(store, monkeypatch):
     calls = install_source(monkeypatch)
     first = daily.update_symbols(["2330", "2330"], max_attempts=1)

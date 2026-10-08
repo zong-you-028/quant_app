@@ -931,6 +931,12 @@ def make_asset_history_rows(history: list, on_delete=None, on_edit=None,
                          weight=ft.FontWeight.BOLD),
                  ft.Text(f"{pnl:+,.0f}", size=12,
                          color="#D32F2F" if pnl >= 0 else "#2E7D32")]
+        if h.get("auto_day"):
+            dates = sorted({d for d in h.get("price_dates", {}).values() if d})
+            date_text = ("～".join((dates[0], dates[-1])) if len(dates) > 1 else dates[0]) if dates else ""
+            state = {"latest": "持股行情已達目標", "cached": "部分行情待更新",
+                     "cash": "僅現金"}.get(h.get("price_status"), "快取估值")
+            cells.append(ft.Text(f"每日自動 · {state} {date_text}", size=11, color="#616161"))
         if on_edit is not None and snap_id is not None:
             cells.append(ft.IconButton(
                 icon=getattr(I, "EDIT_OUTLINED", None), icon_size=16,
@@ -948,7 +954,7 @@ def make_asset_history_rows(history: list, on_delete=None, on_edit=None,
 
 def make_asset_figure(history: list) -> Figure:
     """總資產成長曲線(快照時間序;紅=賺 綠=賠,疊上累計投入虛線作對照)。"""
-    hs = sorted(history, key=lambda h: h["ts"])          # 舊到新
+    hs = sorted((h for h in history if h.get("total_assets") is not None), key=lambda h: h["ts"])
     ts = [pd.to_datetime(h["ts"]) for h in hs]
     assets = [h.get("total_assets") or 0.0 for h in hs]
     invested = [h.get("invested") or 0.0 for h in hs]
@@ -1217,7 +1223,8 @@ def _build_app(page: ft.Page, on_logout=None):
     except Exception:
         j_history_btn = ft.ElevatedButton(text="展開總資產紀錄")
     j_history_content = ft.Column(
-        [j_hist_chart, j_hist_panel], spacing=8, visible=False)
+        [j_hist_panel], spacing=8, visible=False)
+    j_asset_status = ft.Text("每日更新會自動記錄總資產；同一天更新同一筆。", size=11, color="#616161")
 
     # 定期定額(DCA)設定:代號 / 每期金額 / 頻率 / 起始日
     dca_title = ft.Text("定期定額(自動回補買入)", size=13, weight=ft.FontWeight.BOLD)
@@ -1475,6 +1482,11 @@ def _build_app(page: ft.Page, on_logout=None):
         loop = asyncio.get_running_loop()
         started = loop.time()
         events = asyncio.Queue()
+        asset_views = asyncio.Queue()
+        asset_errors = []
+        asset_result = [{}]
+        asset_checked = [False]
+        held_symbols = set()
         phase = [0, 0, "", "準備更新清單"]
         final_label = "更新每日資料"
 
@@ -1483,6 +1495,42 @@ def _build_app(page: ft.Page, on_logout=None):
             message = {"updated": "已更新", "current": "已達目標", "stale": "仍未達目標",
                        "failed": "更新失敗"}.get(message, message)
             loop.call_soon_threadsafe(events.put_nowait, (done, total, symbol, message))
+
+        def save_assets(symbol=None, expected_asof=None):
+            # An unheld stock cannot change portfolio value. Avoid querying the
+            # remote ledger for all 150 quotes; revalue every held quote, the
+            # first saved item, and once more at batch end (including cash edits).
+            if symbol is not None and asset_checked[0] and symbol not in held_symbols:
+                return
+            try:
+                view = load_journal_view()
+                outcome = journal.snapshot_assets_daily(snapshot=view, expected_asof=expected_asof)
+                asset_errors.clear()
+                asset_result[0] = outcome
+                asset_checked[0] = True
+                if outcome.get("saved"):
+                    view["history"] = journal.list_asset_history()
+                loop.call_soon_threadsafe(asset_views.put_nowait, view)
+            except Exception as exc:
+                asset_errors.append(str(exc)[:200])
+
+        def paint_assets():
+            latest = None
+            while not asset_views.empty():
+                latest = asset_views.get_nowait()
+            if latest is not None:
+                refresh_journal(latest)
+            outcome = asset_result[0]
+            errors = list(asset_errors)
+            if outcome.get("saved"):
+                j_asset_status.value = f"已自動更新 {outcome['day']} 總資產紀錄與折線圖（同日一筆）。"
+                j_asset_status.color = "#2E7D32"
+            elif outcome.get("reason"):
+                j_asset_status.value = outcome["reason"]
+                j_asset_status.color = "#B26A00"
+            if errors:
+                j_asset_status.value = f"行情已保存；總資產紀錄更新失敗：{errors[-1]}"
+                j_asset_status.color = "#B71C1C"
 
         async def paint_progress():
             while True:
@@ -1497,16 +1545,20 @@ def _build_app(page: ft.Page, on_logout=None):
                 checked = f"已檢查 {done}/{total} 檔 · " if total else ""
                 compute_status.value = f"{checked}{symbol} {message} · 已用 {elapsed} 秒"
                 update_progress.value = min(done / total, 1) if total else None
+                paint_assets()
                 page.update()
                 await asyncio.sleep(0.2)
 
         painter = asyncio.create_task(paint_progress())
         try:
             targets = await asyncio.to_thread(_update_targets)
+            held_symbols.update(p["symbol"] for p in await asyncio.to_thread(journal.positions))
             res = await asyncio.to_thread(
                 update_symbols, targets, ignore_throttle=not startup,
                 time_budget_seconds=90, max_attempts=1 if startup else 2,
-                on_start=report, progress=report)
+                on_start=report, progress=report, on_saved=save_assets)
+            if not res.get("busy"):
+                await asyncio.to_thread(save_assets, expected_asof=res.get("expected_asof"))
             sox_error = ""
             if not res.get("busy") and not res.get("time_budget_reached"):
                 report(len(targets), len(targets), "SOX", "更新費半市場資料")
@@ -1547,12 +1599,15 @@ def _build_app(page: ft.Page, on_logout=None):
             snapshot = await asyncio.to_thread(load_journal_view)
             painter.cancel()
             await asyncio.gather(painter, return_exceptions=True)
+            paint_assets()
             refresh_journal(snapshot)  # UI mutations stay on the event loop
+            if asset_errors:
+                scan_msg.value += f"\n行情已保存，但總資產紀錄未能完成：{asset_errors[-1]}"
             invalidate_results("本批更新結束，請依資料時效重新計算目前模型的輪動名單。")
             refresh_model_overview({"data_quality": quality})
             incomplete = (res.get("stale") or res.get("failed") or res.get("pending")
                           or sox_error or quality.get("stale"))
-            scan_msg.color = "#B71C1C" if res.get("failed") or sox_error else "#B26A00" if incomplete or res.get("busy") else "#2E7D32"
+            scan_msg.color = "#B71C1C" if res.get("failed") or sox_error or asset_errors else "#B26A00" if incomplete or res.get("busy") else "#2E7D32"
             if res.get("busy"):
                 compute_status.value = "另一個畫面正在更新；請稍後檢查資料日期。"
                 compute_status.color = "#B26A00"
@@ -1578,6 +1633,7 @@ def _build_app(page: ft.Page, on_logout=None):
         finally:
             painter.cancel()
             await asyncio.gather(painter, return_exceptions=True)
+            paint_assets()
             compute_state["busy"] = False
             run_btn.disabled = scan_btn.disabled = update_btn.disabled = False
             reconcile_btn.disabled = scan_state.get("res") is None
@@ -1716,7 +1772,7 @@ def _build_app(page: ft.Page, on_logout=None):
                 "還沒有資產，輸入代號、持有數量與平均成本即可新增。",
                 size=12, color=getattr(C, "GREY", "#9E9E9E"))]
         j_summary.value = make_summary_text(snapshot["summary"])
-        # 總資產快照清單 + 成長曲線(≥2 筆才畫圖)
+        # A single saved day is already a valid point; never fabricate a past day.
         hist = snapshot["history"]
         history_label = ("收合" if j_state["history_expanded"] else "展開")
         j_history_btn.content = f"{history_label}總資產紀錄（{len(hist)} 筆）"
@@ -1729,7 +1785,7 @@ def _build_app(page: ft.Page, on_logout=None):
                 on_save=on_save_snapshot, on_cancel=on_cancel_snapshot_edit) if hist else
             [ft.Text("尚無快照,按「記錄總資產」存一筆", size=11,
                      color=getattr(C, "GREY", "#9E9E9E"))])
-        if len(hist) >= 2:
+        if any(h.get("total_assets") is not None for h in hist):
             j_hist_chart.content = asset_history_image(hist)
             j_hist_chart.visible = True
         else:
@@ -2074,6 +2130,8 @@ def _build_app(page: ft.Page, on_logout=None):
             j_panel,
             ft.Divider(),
             ft.Text("總資產紀錄", size=13, weight=ft.FontWeight.BOLD),
+            j_asset_status,
+            j_hist_chart,
             j_snap_btn,
             j_history_btn,
             j_history_content,

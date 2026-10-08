@@ -65,6 +65,22 @@ def update_symbols(symbols, force=False, ignore_throttle=False, **kwargs):
     freshness/status displays are reconstructed from the actual stored rows.
     """
     syms = list(dict.fromkeys(s.strip().upper() for s in symbols if s and s.strip()))
+    on_saved = kwargs.pop("on_saved", None)
+    progress = kwargs.get("progress")
+    saved_errors = {}
+
+    def after_commit(done, total, symbol, status):
+        # The pipeline reports completion after its DB commit. Valuation errors
+        # must not turn a successful quote into a retry or another download.
+        if on_saved and status in ("updated", "current", "stale"):
+            try:
+                on_saved(symbol)
+            except Exception as exc:
+                saved_errors[symbol] = str(exc)
+        if progress:
+            progress(done, total, symbol, status)
+
+    kwargs["progress"] = after_commit
     if kwargs.get("time_budget_seconds") is None:
         kwargs["time_budget_seconds"] = 90
     if kwargs.get("time_budget_seconds") is not None and kwargs["time_budget_seconds"] > 300:
@@ -105,7 +121,7 @@ def update_symbols(symbols, force=False, ignore_throttle=False, **kwargs):
             if dp.chip_needs_update(symbol):
                 result["stale_chip_symbols"].append(symbol)
             for name in ("on_start", "progress"):
-                callback = kwargs.get(name)
+                callback = progress if name == "progress" else kwargs.get(name)
                 if callback:
                     callback(len(syms), len(syms), symbol, "讀取今日已保存資料" if symbol in completed else "current")
         dates = [value for value in result["data_dates"].values() if value]
@@ -115,6 +131,7 @@ def update_symbols(symbols, force=False, ignore_throttle=False, **kwargs):
         result["daily_saved_on"] = day
         result["database_saved"] = True
         result["total_symbols"] = len(syms)
+        result["on_saved_errors"] = saved_errors
         return result
 
 

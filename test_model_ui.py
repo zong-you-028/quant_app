@@ -139,6 +139,7 @@ def build_app(monkeypatch):
     for method in ("list_trades", "positions", "list_asset_history", "list_dca_plans"):
         monkeypatch.setattr(app.journal, method, lambda: [])
     monkeypatch.setattr(app.journal, "cash_balance", lambda: 0.)
+    monkeypatch.setattr(app.journal, "snapshot_assets_daily", lambda **kwargs: {"saved": False, "reason": "尚無資產或現金"})
     monkeypatch.setattr(app.journal, "summary", lambda: {
         "invested": 0., "realized_pnl": 0., "n_open": 0, "n_closed": 0,
     })
@@ -148,6 +149,78 @@ def build_app(monkeypatch):
     page = FakePage()
     app._build_app(page)
     return page
+
+
+def test_asset_history_and_chart_refresh_before_quote_batch_finishes(monkeypatch):
+    import threading
+    import time
+    page = build_app(monkeypatch)
+    owner = threading.get_ident()
+    frames, chart_values, saved = [], [], []
+    hist = []
+    total = [10000.]
+    positions = [{"symbol": "2330", "name": "測試", "shares": 10, "average_cost": 500.,
+                  "cost": 5000., "lots": 1, "market_value": 10000., "pnl": 5000., "return": 1.}]
+    monkeypatch.setattr(app.journal, "positions", lambda: positions)
+    monkeypatch.setattr(app.journal, "summary", lambda: {"total_assets": total[0], "invested": 5000.,
+                        "realized_pnl": 0., "n_open": 1, "n_closed": 0})
+    monkeypatch.setattr(app.journal, "list_asset_history", lambda: list(hist))
+    def persist(**kwargs):
+        assert threading.get_ident() != owner
+        value = kwargs["snapshot"]["summary"]["total_assets"]
+        saved.append(value)
+        hist[:] = [{"id": 1, "ts": "2026-10-08 19:00", "auto_day": "2026-10-08",
+                    "total_assets": value, "invested": 5000., "price_status": "latest"}]
+        return {"saved": True, "day": "2026-10-08"}
+    def image(history):
+        assert threading.get_ident() == owner  # all Flet/plot work stays on UI loop
+        chart_values.append(history[0]["total_assets"])
+        return ft.Image(src="test-only.png")
+    monkeypatch.setattr(app.journal, "snapshot_assets_daily", persist)
+    monkeypatch.setattr(app, "asset_history_image", image)
+    monkeypatch.setattr(FakePage, "update", lambda p: frames.append(texts(p.controls)))
+    def update(symbols, **kwargs):
+        total[0] = 11000.
+        kwargs["on_saved"]("2330")
+        kwargs["progress"](1, 3, "2330", "updated")
+        time.sleep(.8)
+        assert any("總資產 11,000" in frame for frame in frames), "UI must refresh before batch return"
+        total[0] = 12000.
+        kwargs["on_saved"]("2330")
+        kwargs["progress"](2, 3, "2330", "updated")
+        kwargs["on_saved"]("UNHELD")  # unchanged assets need no remote write
+        return {"updated": 3, "expected_asof": "2026-10-08"}
+    monkeypatch.setattr(app, "update_symbols", update)
+    monkeypatch.setattr(app, "format_update_status", lambda r: "行情完成")
+    asyncio.run(button(page.controls, "更新每日資料").on_click(None))
+    assert saved == [11000., 12000., 12000.] and hist[0]["id"] == 1
+    assert 11000. in chart_values and chart_values[-1] == 12000.
+    assert "已自動更新 2026-10-08" in texts(page.controls)
+    # Chart is visible without expanding the history list, even for one point.
+    chart = next(c for c in walk(page.controls) if isinstance(c, ft.Container)
+                 and isinstance(c.content, ft.Image) and c.content.src == "test-only.png")
+    assert chart.visible
+    assert not button(page.controls, "更新每日資料").disabled
+
+
+def test_asset_save_failure_is_visible_without_marking_quotes_failed(monkeypatch):
+    page = build_app(monkeypatch)
+    def fail(**kwargs):
+        raise RuntimeError("test journal offline")
+    monkeypatch.setattr(app.journal, "snapshot_assets_daily", fail)
+    monkeypatch.setattr(app, "update_symbols", lambda *a, **kw: {"updated": 1, "failed": 0})
+    monkeypatch.setattr(app, "format_update_status", lambda r: "更新 1 · 失敗 0")
+    asyncio.run(button(page.controls, "更新每日資料").on_click(None))
+    assert "更新 1 · 失敗 0" in texts(page.controls)
+    assert "test journal offline" in texts(page.controls)
+    assert not button(page.controls, "更新每日資料").disabled
+
+
+def test_asset_plot_does_not_turn_missing_valuations_into_zero():
+    fig = app.make_asset_figure([
+        {"ts": "2026-10-07", "total_assets": None, "invested": 0},
+        {"ts": "2026-10-08", "total_assets": 5000, "invested": 4000}])
+    assert list(fig.axes[0].lines[0].get_ydata()) == [5000.]
 
 
 def test_single_active_model_update_invalidation_and_stale_callback_guard(monkeypatch):

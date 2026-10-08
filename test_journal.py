@@ -9,10 +9,98 @@ summary 已實現損益 -> delete_trade 還原,最後確認 DB 乾淨。
   不依賴正式資料種子或合成行情 fallback，也不改動其他測試的 DB 設定。
 """
 import pandas as pd
+import datetime as dt
 import pytest
 
 import config
 from core import data_pipeline, journal
+
+TAIPEI = dt.timezone(dt.timedelta(hours=8))
+
+
+def test_daily_assets_revalue_same_row_and_preserve_manual_and_previous_days():
+    journal.add_current_asset("2330", 10, 600)
+    journal.add_current_asset("TEST", 20, 90)
+    journal.set_cash_balance(5000)
+    journal.snapshot_assets()
+    manual = next(h for h in journal.list_asset_history() if not h["auto_day"])
+    first = dt.datetime(2026, 10, 7, 19, tzinfo=TAIPEI)
+    journal.snapshot_assets_daily(now=first, expected_asof="2026-10-07")
+    daily = next(h for h in journal.list_asset_history() if h["auto_day"])
+    assert daily["total_assets"] == 13500 and daily["price_status"] == "cached"
+    with data_pipeline.get_conn() as conn:
+        conn.execute("UPDATE ohlcv SET close=700 WHERE symbol='2330' AND date='2026-10-02'")
+    journal.snapshot_assets_daily(now=first, expected_asof="2026-10-02")
+    rows = journal.list_asset_history()
+    revised = next(h for h in rows if h["auto_day"])
+    assert len(rows) == 2 and revised["id"] == daily["id"]
+    assert revised["total_assets"] == 14000 and revised["price_status"] == "latest"
+    assert revised["price_dates"] == {"2330": "2026-10-02", "TEST": "2026-10-02"}
+    assert next(h for h in rows if h["id"] == manual["id"]) == manual
+    journal.snapshot_assets_daily(now=first + dt.timedelta(days=1), expected_asof="2026-10-07")
+    rows = journal.list_asset_history()
+    assert len(rows) == 3
+    assert next(h for h in rows if h["id"] == revised["id"]) == revised
+
+
+def test_daily_assets_uses_taipei_day_and_cash_only_value():
+    journal.set_cash_balance(12500)
+    # UTC October 7 16:05 is Taipei October 8, regardless of server timezone.
+    journal.snapshot_assets_daily(now=dt.datetime(2026, 10, 7, 16, 5, tzinfo=dt.timezone.utc))
+    row = journal.list_asset_history()[0]
+    assert row["auto_day"] == "2026-10-08" and row["ts"] == "2026-10-08 00:05"
+    assert row["total_assets"] == 12500 and row["price_status"] == "cash"
+
+
+def test_daily_assets_missing_quote_preserves_existing_valid_snapshot():
+    journal.add_current_asset("2330", 10, 600)
+    now = dt.datetime(2026, 10, 8, 19, tzinfo=TAIPEI)
+    journal.snapshot_assets_daily(now=now)
+    before = journal.list_asset_history()
+    with data_pipeline.get_conn() as conn:
+        conn.execute("DELETE FROM ohlcv WHERE symbol='2330'")
+    result = journal.snapshot_assets_daily(now=now)
+    assert not result["saved"] and "缺少" in result["reason"]
+    assert journal.list_asset_history() == before
+
+
+def test_daily_assets_empty_account_does_not_fabricate_zero_history():
+    assert not journal.snapshot_assets_daily()["saved"]
+    assert journal.list_asset_history() == []
+
+
+def test_editing_auto_snapshot_preserves_user_override_as_manual():
+    journal.set_cash_balance(10000)
+    now = dt.datetime(2026, 10, 8, 19, tzinfo=TAIPEI)
+    journal.snapshot_assets_daily(now=now)
+    row = journal.list_asset_history()[0]
+    journal.update_asset_snapshot(row["id"], ts="2026-10-08 19:00", invested=0, total_assets=9999)
+    journal.snapshot_assets_daily(now=now)
+    rows = journal.list_asset_history()
+    assert len(rows) == 2
+    assert next(h for h in rows if h["id"] == row["id"])["total_assets"] == 9999
+    assert next(h for h in rows if h["auto_day"])["total_assets"] == 10000
+
+
+def test_history_upgrade_keeps_legacy_rows():
+    with data_pipeline.get_conn() as conn:
+        conn.execute("DROP TABLE asset_history")
+        conn.execute("CREATE TABLE asset_history(id INTEGER PRIMARY KEY,ts TEXT,invested REAL,market_value REAL,realized REAL,total_assets REAL,total_pnl REAL)")
+        conn.execute("INSERT INTO asset_history VALUES(1,'2026-10-01',10,12,0,12,2)")
+    journal.init_journal()
+    row = journal.list_asset_history()[0]
+    assert row["total_assets"] == 12 and row["auto_day"] is None
+
+
+def test_daily_assets_concurrent_sessions_cannot_create_duplicate_days():
+    from concurrent.futures import ThreadPoolExecutor
+    journal.set_cash_balance(10000)
+    now = dt.datetime(2026, 10, 8, 19, tzinfo=TAIPEI)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: journal.snapshot_assets_daily(now=now), range(8)))
+    assert all(result["saved"] for result in results)
+    rows = journal.list_asset_history()
+    assert len(rows) == 1 and rows[0]["total_assets"] == 10000.
 
 
 @pytest.fixture(autouse=True)

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-08
+
+- Automatically upsert a Taipei daily total-assets snapshot after held quotes are saved, and recheck at batch end. Same-day retries and concurrent sessions retain one automatic row; manual snapshots and earlier days are preserved. Editing an automatic snapshot converts it to a manual record.
+- Refresh portfolio values, asset history and the line chart while the update continues. The chart is visible independently of collapsed history details and supports a single first-day point. Unheld quotes skip redundant remote valuation reads.
+- Store held-quote valuation dates and freshness, preserve valid snapshots when a held quote is unavailable, and report asset-write failures without redownloading successful quotes. Existing missing-valued snapshots no longer plot as zero.
+- Passed 283 isolated regression tests and 17 desktop/mobile browser checks, with zero formal database attempts; prospective source identities and both original archive heads remain unchanged. Browser QA uses synthetic holdings and controlled quotes, never real investment records.
+
 ## 2026-10-07
 
 - Added an app-only Taipei daily update policy backed by SQLite: committed successful downloads are reused across clicks and processes; failures and unfinished symbols can resume without refetching completed symbols. Same-day newer targets remain visibly stale until the next day; current-cache checks do not consume the daily allowance.

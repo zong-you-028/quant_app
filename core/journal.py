@@ -20,6 +20,7 @@ journal.py - 投資紀錄(交易日誌 / 持倉帳本 + 總資產 + 定期定額
         = 累計投入 + 總損益(已實現 + 未實現)
 """
 import calendar
+import json
 import math
 import datetime as _dt
 
@@ -117,10 +118,28 @@ def init_journal() -> None:
             market_value REAL,
             realized     REAL,
             total_assets REAL,
-            total_pnl    REAL
+            total_pnl    REAL,
+            auto_day     TEXT,
+            price_dates  TEXT,
+            price_status TEXT
         )
         """
     )
+    # NULL auto_day keeps all existing/manual snapshots independent. A unique
+    # key makes daily writes atomic across app sessions on SQLite and Postgres.
+    if pg:
+        history_cols = {r[0] for r in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'asset_history'").fetchall()}
+        for column in ("auto_day", "price_dates", "price_status"):
+            if column not in history_cols:
+                conn.execute(f"ALTER TABLE asset_history ADD COLUMN IF NOT EXISTS {column} TEXT")
+    else:
+        history_cols = {r[1] for r in conn.execute("PRAGMA table_info(asset_history)").fetchall()}
+        for column in ("auto_day", "price_dates", "price_status"):
+            if column not in history_cols:
+                conn.execute(f"ALTER TABLE asset_history ADD COLUMN {column} TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS asset_history_auto_day ON asset_history(auto_day)")
     conn.execute(
         f"""
         CREATE TABLE IF NOT EXISTS cash_movements (
@@ -795,13 +814,61 @@ def list_asset_history(limit: int = 30) -> list:
     init_journal()
     conn = get_conn()
     rows = conn.execute(
-        "SELECT id, ts, invested, market_value, realized, total_assets, total_pnl "
-        "FROM asset_history ORDER BY id DESC LIMIT ?", (int(limit),)
+        "SELECT id, ts, invested, market_value, realized, total_assets, total_pnl, "
+        "auto_day, price_dates, price_status "
+        "FROM asset_history ORDER BY ts DESC, id DESC LIMIT ?", (int(limit),)
     ).fetchall()
     conn.close()
     return [{"id": r[0], "ts": r[1], "invested": r[2], "market_value": r[3],
-             "realized": r[4], "total_assets": r[5], "total_pnl": r[6]}
+             "realized": r[4], "total_assets": r[5], "total_pnl": r[6],
+             "auto_day": r[7], "price_dates": json.loads(r[8]) if r[8] else {},
+             "price_status": r[9]}
             for r in rows]
+
+
+def snapshot_assets_daily(*, expected_asof=None, snapshot=None, now=None) -> dict:
+    """Upsert today's valuation, never invent missing quotes or past history.
+
+    The app may supply its freshly read view to avoid repeated remote ledger
+    reads. Only asset_history is written; trades and cash remain untouched.
+    """
+    taipei = _dt.timezone(_dt.timedelta(hours=8))
+    stamp = (now or _dt.datetime.now(taipei)).astimezone(taipei)
+    s = snapshot["summary"] if snapshot is not None else summary()
+    if not s.get("n_total", 0) and not s.get("cash", 0):
+        return {"saved": False, "reason": "尚無資產或現金"}
+    fields = ("invested", "market_value", "realized_proceeds", "total_assets", "total_pnl")
+    if any(s.get(key) is None or not math.isfinite(float(s[key])) for key in fields):
+        return {"saved": False, "reason": "持股缺少有效行情，保留原總資產紀錄"}
+    holdings = snapshot["positions"] if snapshot is not None else positions()
+    dates = {}
+    for position in holdings:
+        frame = load_ohlcv(position["symbol"])
+        dates[position["symbol"]] = str(frame.index[-1].date()) if frame is not None and not frame.empty else None
+    if expected_asof is None:
+        from core.data_pipeline import _last_trading_day
+        expected_asof = _last_trading_day()
+    target = str(expected_asof)[:10]
+    status = "cash" if not holdings else (
+        "latest" if target and all(date and date >= target for date in dates.values()) else "cached")
+    init_journal()
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO asset_history (ts,invested,market_value,realized,total_assets,total_pnl,"
+            "auto_day,price_dates,price_status) VALUES (?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(auto_day) DO UPDATE SET ts=excluded.ts,invested=excluded.invested,"
+            "market_value=excluded.market_value,realized=excluded.realized,"
+            "total_assets=excluded.total_assets,total_pnl=excluded.total_pnl,"
+            "price_dates=excluded.price_dates,price_status=excluded.price_status",
+            (stamp.strftime("%Y-%m-%d %H:%M"), s["invested"], s["market_value"],
+             s["realized_proceeds"], s["total_assets"], s["total_pnl"], stamp.date().isoformat(),
+             json.dumps(dates, sort_keys=True), status),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"saved": True, "day": stamp.date().isoformat(), "price_status": status}
 
 
 def delete_asset_snapshot(snap_id: int) -> None:
@@ -835,7 +902,7 @@ def update_asset_snapshot(snap_id: int, *, ts: str, invested, total_assets) -> N
         raise ValueError("找不到這筆總資產紀錄")
     conn.execute(
         "UPDATE asset_history SET ts = ?, invested = ?, total_assets = ?, "
-        "total_pnl = ? WHERE id = ?",
+        "total_pnl = ?, auto_day = NULL, price_dates = NULL, price_status = NULL WHERE id = ?",
         (ts, invested, total_assets, total_assets - invested, snap_id),
     )
     conn.commit()
