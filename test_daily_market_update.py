@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -14,6 +15,8 @@ from core import data_pipeline as dp, market_regime as mr
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
+    monkeypatch.setenv("MARKET_DATABASE_URL", "")
+    monkeypatch.setenv("JOURNAL_DATABASE_URL", "")
     path = str(tmp_path / "market.db")
     monkeypatch.setattr(dp.config, "DB_PATH", path)
     monkeypatch.setattr(dp.config, "DATA_SOURCE", "finmind")
@@ -129,13 +132,14 @@ def test_next_taipei_day_allows_new_data(store, monkeypatch):
     assert calls == ["2330", "2330"] and result["asof"] == "2026-10-07"
 
 
-def test_same_day_new_target_stays_truthfully_stale_until_next_day(store, monkeypatch):
+def test_same_day_new_target_can_resume_without_waiting_until_tomorrow(store, monkeypatch):
     calls = install_source(monkeypatch)
     daily.update_symbols(["2330"], max_attempts=1)
     monkeypatch.setattr(dp, "_last_trading_day", lambda *a: pd.Timestamp("2026-10-07"))
+    monkeypatch.setattr(dp, "_refresh_market_data", lambda s: (calls.append(s), commit_quote(s, "2026-10-07")))
     result = daily.update_symbols(["2330"], force=True, max_attempts=1)
-    assert calls == ["2330"] and result["stale"] == 1
-    assert result["asof"] == "2026-10-06" and result["expected_asof"] == "2026-10-07"
+    assert calls == ["2330", "2330"] and result["updated"] == 1
+    assert result["asof"] == result["expected_asof"] == "2026-10-07"
 
 
 def test_reading_current_cache_does_not_consume_daily_download(store, monkeypatch):
@@ -198,3 +202,42 @@ def test_sox_busy_session_does_not_download(store, monkeypatch):
     with daily._lease("sox"):
         with pytest.raises(RuntimeError, match="未重複"):
             daily.refresh_sox()
+
+
+def test_sox_cache_read_does_not_consume_later_download(store, monkeypatch):
+    cached = pd.Series([5100.], index=pd.to_datetime(["2026-10-06"]), name="close")
+    mr._write_sox(cached)
+    monkeypatch.setattr(mr, "refresh_sox", lambda **kwargs: pytest.fail("Current CSV must not download"))
+    assert daily.refresh_sox().equals(cached)
+    with closing(dp.get_conn()) as conn:
+        assert not daily._read(conn, "sox")
+    monkeypatch.setattr(daily, "_now", lambda: dt.datetime(2026, 10, 8, 10, tzinfo=daily.TAIPEI))
+    fresh = pd.Series([5200.], index=pd.to_datetime(["2026-10-07"]), name="close")
+    calls = []
+    monkeypatch.setattr(mr, "refresh_sox", lambda **kwargs: calls.append(1) or fresh)
+    assert daily.refresh_sox().equals(fresh) and calls == [1]
+
+
+def test_sox_same_taipei_day_new_completed_us_session_can_refresh(store, monkeypatch):
+    monkeypatch.setattr(daily, "_now", lambda: dt.datetime(2026, 10, 7, 1, tzinfo=daily.TAIPEI))
+    old = pd.Series([5000.], index=pd.to_datetime(["2026-10-05"]), name="close")
+    monkeypatch.setattr(mr, "refresh_sox", lambda **kwargs: old)
+    assert daily.refresh_sox().equals(old)
+    monkeypatch.setattr(daily, "_now", lambda: dt.datetime(2026, 10, 7, 10, tzinfo=daily.TAIPEI))
+    new = pd.Series([5100.], index=pd.to_datetime(["2026-10-06"]), name="close")
+    calls = []
+    monkeypatch.setattr(mr, "refresh_sox", lambda **kwargs: calls.append(1) or new)
+    assert daily.refresh_sox().iloc[-1] == 5100. and calls == [1]
+
+
+def test_app_sox_download_excludes_incomplete_us_session_and_is_bounded(store, monkeypatch):
+    calls = []
+    monkeypatch.setattr(mr, "_cached_sox", lambda *args: None)
+    frame = pd.DataFrame({"Close": [5000., 5100., 9999.]},
+                         index=pd.to_datetime(["2026-10-05", "2026-10-06", "2026-10-07"]))
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(
+        download=lambda *args, **kwargs: calls.append(kwargs) or frame))
+    result = daily.refresh_sox()
+    assert result.index.max() == pd.Timestamp("2026-10-06")
+    assert 9999. not in result.values
+    assert len(calls) == 1 and calls[0]["timeout"] == 8 and not calls[0]["threads"]

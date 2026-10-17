@@ -37,7 +37,7 @@ import flet as ft
 
 import config
 from core.data_pipeline import ensure_data, get_stock_name, load_ohlcv, format_update_status
-from core.daily_market_update import update_symbols, refresh_sox
+from core.market_update_workflow import run_update as update_symbols
 from core.exit_radar import RadarSettings, analyze_exit_radar
 from core import rotation
 from core import journal
@@ -1476,7 +1476,7 @@ def _build_app(page: ft.Page, on_logout=None):
         _set_button_label(update_btn, "更新中…")
         update_progress.visible = True
         update_progress.value = 0
-        scan_msg.value = "新行情會寫入資料庫；本日已完成的標的不重抓，只續抓未完成部分。"
+        scan_msg.value = "先還原已保存的行情；更新會自動接續未完成項目，同一資料目標不重抓。"
         scan_msg.color = getattr(C, "GREY_700", "#616161")
         page.update()
         loop = asyncio.get_running_loop()
@@ -1554,34 +1554,33 @@ def _build_app(page: ft.Page, on_logout=None):
             targets = await asyncio.to_thread(_update_targets)
             held_symbols.update(p["symbol"] for p in await asyncio.to_thread(journal.positions))
             res = await asyncio.to_thread(
-                update_symbols, targets, ignore_throttle=not startup,
-                time_budget_seconds=90, max_attempts=1 if startup else 2,
+                update_symbols, targets, startup=startup,
+                time_budget_seconds=90,
                 on_start=report, progress=report, on_saved=save_assets)
             if not res.get("busy"):
                 await asyncio.to_thread(save_assets, expected_asof=res.get("expected_asof"))
-            sox_error = ""
-            if not res.get("busy") and not res.get("time_budget_reached"):
-                report(len(targets), len(targets), "SOX", "更新費半市場資料")
-                try:
-                    sox = await asyncio.to_thread(refresh_sox, raise_errors=True)
-                    if sox is None or sox.empty:
-                        raise RuntimeError("沒有可用費半資料")
-                except Exception as ex:
-                    sox_error = f"費半更新失敗：{str(ex)[:200]}"
-            elif res.get("time_budget_reached"):
-                sox_error = "本批時間已到，費半待下次檢查。"
+            sox_error = ("費半更新失敗：" + str(res["sox_error"])[:200]
+                         if res.get("sox_error") else "")
             scan_msg.value = format_update_status(res)
             if res.get("daily_skipped_symbols"):
                 scan_msg.value += f"\n本日已保存 {len(res['daily_skipped_symbols'])} 檔，直接讀取資料庫，未重複下載。"
-                if (res.get("stale") and not res.get("failed") and not res.get("pending")
-                        and set(res.get("stale_symbols", [])).issubset(res["daily_skipped_symbols"])):
-                    scan_msg.value += "\n本日已成功更新，新的更新目標留待明日；建議每日台北時間18:00後更新。"
-                    final_label = "明日再更新"
             if not res.get("busy"):
-                scan_msg.value += "\n成功取得的行情及籌碼已寫入資料庫；費半使用資料庫與本機快取。"
+                if res.get("automatic_continuation"):
+                    scan_msg.value += f"\n已自動接續 {res.get('batches', 1)} 批，完成的項目未重複下載。"
+                storage = res.get("storage") or {}
+                if storage.get("configured") and storage.get("durable") and not res.get("cloud_errors"):
+                    scan_msg.value += "\n行情已保存至雲端資料庫；Render 重啟後會先還原已保存資料。"
+                elif storage.get("configured"):
+                    scan_msg.value += "\n雲端行情尚未確認保存；本機快取仍保留，請稍後重試保存。"
+                else:
+                    scan_msg.value += "\n行情已保存於本機。Render 網頁版須設定雲端資料庫才能跨重啟保留。"
             if res.get("pending") and not res.get("busy"):
-                scan_msg.value += "\n已完成資料已保存，按「繼續更新未完成資料」接續。"
+                scan_msg.value += "\n" + (res.get("continuation_stop_reason") or "仍有未完成項目，已保留進度，可稍後接續。")
                 final_label = "繼續更新未完成資料"
+            cloud_errors = res.get("cloud_errors") or {}
+            if cloud_errors:
+                scan_msg.value += "\n" + str(next(iter(cloud_errors.values())))[:240]
+                final_label = "重試行情保存或更新"
             if res.get("failed"):
                 failed = "、".join(res.get("failed_symbols", [])[:6])
                 first_error = next(iter((res.get("errors") or {}).values()), "")
@@ -1606,11 +1605,15 @@ def _build_app(page: ft.Page, on_logout=None):
             invalidate_results("本批更新結束，請依資料時效重新計算目前模型的輪動名單。")
             refresh_model_overview({"data_quality": quality})
             incomplete = (res.get("stale") or res.get("failed") or res.get("pending")
-                          or sox_error or quality.get("stale"))
-            scan_msg.color = "#B71C1C" if res.get("failed") or sox_error or asset_errors else "#B26A00" if incomplete or res.get("busy") else "#2E7D32"
+                          or sox_error or cloud_errors or quality.get("stale"))
+            scan_msg.color = "#B71C1C" if res.get("failed") or sox_error or cloud_errors or asset_errors else "#B26A00" if incomplete or res.get("busy") else "#2E7D32"
             if res.get("busy"):
                 compute_status.value = "另一個畫面正在更新；請稍後檢查資料日期。"
                 compute_status.color = "#B26A00"
+            elif cloud_errors:
+                compute_status.value = (res.get("public_message") or
+                                        "行情已保留在本機，但雲端保存未完成；請稍後重試保存。")
+                compute_status.color = "#B71C1C"
             elif incomplete:
                 compute_status.value = "仍有資料未達更新目標；計算結果僅供歷史檢視。"
                 compute_status.color = "#B26A00"
@@ -1620,7 +1623,7 @@ def _build_app(page: ft.Page, on_logout=None):
             if not res.get("busy"):
                 compute_status.value += (f"\n更新 {res.get('updated', 0)} · 已達目標 {res.get('current', 0)}"
                                          f" · 未達 {res.get('stale', 0)} · 失敗 {res.get('failed', 0)}"
-                                         f" · 待續抓 {res.get('pending', 0)} · 耗時 {int(loop.time() - started)} 秒")
+                                         f" · 待續抓 {res.get('pending', 0)} · {res.get('batches', 1)} 批 · 耗時 {int(loop.time() - started)} 秒")
                 first_error = next(iter((res.get("errors") or {}).values()), "")
                 if sox_error or first_error:
                     compute_status.value += f"\n{sox_error or first_error[:180]}"
@@ -1647,7 +1650,7 @@ def _build_app(page: ft.Page, on_logout=None):
     update_btn.on_click = on_update
 
     async def _auto_update():
-        """每次啟動只執行一批；已完成標的不重抓，不另抓一次庫存。"""
+        """One logical update drains resumable chunks without duplicate holdings downloads."""
         await run_daily_update(startup=True)
 
     # 續抱:本期又選到已持有的標的 -> 更新輪替日 + 依現價重算停損/停利(月度移動停損)
@@ -2072,7 +2075,7 @@ def _build_app(page: ft.Page, on_logout=None):
     usage_guide = ft.ExpansionTile(
         title=ft.Text("使用流程", size=13, weight=ft.FontWeight.BOLD),
         controls=[ft.Container(content=ft.Column([
-            ft.Text("1. 啟動會檢查資料庫；每檔本日成功更新後不重抓，隔天才更新。若有待續抓或失敗，按「更新每日資料」只接續未完成部分，確認實際資料日期後再計算。", size=12),
+            ft.Text("1. 啟動先還原雲端行情；按「更新每日資料」會自動分批接續，同一資料目標已完成的項目不重抓。來源失敗會保留進度並顯示原因，確認實際資料日期後再計算。", size=12),
             ft.Text("2. 按「計算輪動名單」，查看成本後績效、排名及閘門結果。", size=12),
             ft.Text("3. 查看「我的持倉核對」的目前應持有、應保留、待補入、依模型應退出；名單最多 8 檔。前 16 名只是續留範圍。核對目標成交日，待執行目標到執行時才切換。", size=12),
             ft.Text("4. 實際成交後，到「投資紀錄」如實記錄交易的成交價與股數。", size=12),

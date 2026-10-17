@@ -1,0 +1,17 @@
+{
+  "frozen_source_identity_matches": true,
+  "frozen_source_files": 10,
+  "archive_files_sha256": {
+    "forward_2026_10_03_v1": {
+      "events\\000001.json": "644fd487be87763178b90e6175210ef64fdd935939f3c9d48d5e5414268577de",
+      "protocol.json": "e1e80f0f39c55548810172f70c2a242a154e277d0c39e5ae3cad4f7cca134f50",
+      "snapshots\\04e831144928c265dacece92f5a93c355c6a8c553f00f0c6ce1a697a72b358b8.json.gz": "15fd8b2cead2b2a2144c17bb4c37312b6867d47a9dd9083050a3a92e789cc75d"
+    },
+    "forward_150_2026_10_04_v1": {
+      "events\\000001.json": "1ec32b5b950ce1dafa880961470a81b0cb90b4f8cd7a17ed9fb5ad08dcfb67d9",
+      "protocol.json": "26c388d006ff0e509eff145290c0f10b9c7be42c8847e068c7d9896d0fe2950a",
+      "snapshots\\e8938123e3a5527d17f78916c0dd6ffb0185e1eae5f73dfb59af7b8e9b180508.json.gz": "bae56537b7ce9d88300718168be564c76a3ecbb38c1fed7d39bbb22fdfa09689"
+    }
+  },
+  "database_access": false
+}

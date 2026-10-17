@@ -1,0 +1,12 @@
+........................................................................ [ 20%]
+........................................................................ [ 40%]
+........................................................................ [ 60%]
+........................................................................ [ 81%]
+...................................................................      [100%]
+============================== warnings summary ===============================
+test_daily_market_update.py: 12 warnings
+  D:\quant_app\core\data_pipeline.py:574: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.
+    combined = pd.concat([old, fresh], ignore_index=True)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+355 passed, 12 warnings in 78.39s (0:01:18)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-17
+
+- Persist public market data and validated updater checkpoints in a separate PostgreSQL cache, using MARKET_DATABASE_URL or the existing Neon connection. Restore it before updates so Render cold starts no longer depend solely on the October 2 seed.
+- Automatically drain bounded update batches with fair pending-work ordering and SOX/006208 priority. Checkpoint monthly backfills, allow a new data target on the same Taipei day, and distinguish cloud-save failures from successful market downloads.
+- Pause downloads on cloud failures and retry committed local data without redownloading it. Preserve journal data, the active strategy, and frozen forward experiments.
+
 ## 2026-10-08
 
 - Automatically upsert a Taipei daily total-assets snapshot after held quotes are saved, and recheck at batch end. Same-day retries and concurrent sessions retain one automatic row; manual snapshots and earlier days are preserved. Editing an automatic snapshot converts it to a manual record.

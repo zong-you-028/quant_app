@@ -135,7 +135,6 @@ class FakePage:
 
 
 def build_app(monkeypatch):
-    monkeypatch.setattr(app, "refresh_sox", lambda **kwargs: pd.Series([100.]))
     for method in ("list_trades", "positions", "list_asset_history", "list_dca_plans"):
         monkeypatch.setattr(app.journal, method, lambda: [])
     monkeypatch.setattr(app.journal, "cash_balance", lambda: 0.)
@@ -251,7 +250,6 @@ def test_single_active_model_update_invalidation_and_stale_callback_guard(monkey
     add.on_click(None)
     assert all(kind != "buy" for kind, _ in seen)
     from core import market_regime
-    monkeypatch.setattr(app, "refresh_sox", lambda **kwargs: pd.Series([100.]))
     monkeypatch.setattr(app, "update_symbols", lambda *args, **kwargs: {"stale": 1, "failed": 0})
     monkeypatch.setattr(app, "format_update_status", lambda result: "尚未達更新目標")
     asyncio.run(button(page.controls, "更新每日資料").on_click(None))
@@ -320,7 +318,6 @@ def test_startup_update_shared_progress_no_duplicate_holdings_fetch(monkeypatch)
     monkeypatch.setattr(FakePage, "update", lambda page: frames.append(texts(page.controls)))
     page = build_app(monkeypatch)
     monkeypatch.setattr(app.journal, "refresh_open_market_data", lambda: pytest.fail("must not download holdings twice"))
-    monkeypatch.setattr(app, "refresh_sox", lambda **kwargs: pd.Series([100.]))
 
     def update(symbols, **kwargs):
         calls.append((symbols, kwargs))
@@ -340,7 +337,7 @@ def test_startup_update_shared_progress_no_duplicate_holdings_fetch(monkeypatch)
         await auto
 
     asyncio.run(run())
-    assert len(calls) == 1 and calls[0][1]["max_attempts"] == 1
+    assert len(calls) == 1 and calls[0][1]["startup"] is True
     assert calls[0][1]["time_budget_seconds"] == 90
     assert any("2330 更新行情" in frame for frame in frames)
     assert not button(page.controls, "繼續更新未完成資料").disabled
@@ -351,9 +348,8 @@ def test_startup_update_shared_progress_no_duplicate_holdings_fetch(monkeypatch)
 def test_sox_failure_is_visible_and_controls_recover(monkeypatch):
     from core import market_regime
     page = build_app(monkeypatch)
-    monkeypatch.setattr(app, "update_symbols", lambda *a, **kw: {"failed": 0, "stale": 0})
+    monkeypatch.setattr(app, "update_symbols", lambda *a, **kw: {"failed": 0, "stale": 0, "sox_error": "source timeout"})
     monkeypatch.setattr(app, "format_update_status", lambda r: "行情已更新")
-    monkeypatch.setattr(app, "refresh_sox", lambda **kw: (_ for _ in ()).throw(RuntimeError("source timeout")))
     asyncio.run(button(page.controls, "更新每日資料").on_click(None))
     assert "費半更新失敗：source timeout" in texts(page.controls)
     assert not button(page.controls, "重試未完成資料").disabled
@@ -370,6 +366,34 @@ def test_startup_failure_is_not_silenced(monkeypatch):
     assert "cannot reach source" in texts(page.controls)
     assert not button(page.controls, "重試未完成資料").disabled
     assert not any(item.visible for item in walk(page.controls) if isinstance(item, ft.ProgressBar))
+
+
+def test_cloud_save_failure_is_visible_even_with_current_quotes(monkeypatch):
+    page = build_app(monkeypatch)
+    monkeypatch.setattr(app, "update_symbols", lambda *args, **kwargs: {
+        "updated": 1, "failed": 0, "stale": 0,
+        "storage": {"configured": True, "durable": False},
+        "cloud_errors": {"2330": "雲端行情保存未完成"}})
+    monkeypatch.setattr(app, "format_update_status", lambda result: "行情已更新")
+    asyncio.run(button(page.controls, "更新每日資料").on_click(None))
+    content = texts(page.controls)
+    assert "雲端保存未完成" in content
+    assert "Render 重啟後會先還原已保存資料" not in content
+    assert not button(page.controls, "重試行情保存或更新").disabled
+
+
+def test_successful_cloud_update_reports_auto_continuation_and_durability(monkeypatch):
+    page = build_app(monkeypatch)
+    monkeypatch.setattr(app, "update_symbols", lambda *args, **kwargs: {
+        "updated": 151, "failed": 0, "stale": 0, "batches": 4,
+        "automatic_continuation": True,
+        "storage": {"configured": True, "durable": True}, "cloud_errors": {}})
+    monkeypatch.setattr(app, "format_update_status", lambda result: "行情已更新")
+    asyncio.run(button(page.controls, "更新每日資料").on_click(None))
+    content = texts(page.controls)
+    assert "已自動接續 4 批" in content
+    assert "行情已保存至雲端資料庫" in content
+    assert not button(page.controls, "更新每日資料").disabled
 
 
 @pytest.mark.parametrize("viewport_width", [390, 420])
