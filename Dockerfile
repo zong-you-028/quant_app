@@ -11,6 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . ./
 
+# Verify the bundled Chinese font loads in the actual Linux build as well.
+RUN python -c "from core.chart_fonts import configure_chart_fonts, FONT_PATH; from matplotlib.ft2font import FT2Font; configure_chart_fonts(); chars=FT2Font(str(FONT_PATH)).get_charmap(); assert all(ord(c) in chars for c in '總資產成長曲線累計投入0123456789')"
+
 # Bootstrap Render with the same real market/name cache used locally.
 # The seed contains no journal tables or personal trading records.
 RUN mkdir -p data && python -c "import gzip, shutil; src=gzip.open('data_seed/market.db.gz','rb'); dst=open('data/market.db','wb'); shutil.copyfileobj(src,dst); src.close(); dst.close(); shutil.copyfile('data_seed/sox.csv','data/sox.csv')"

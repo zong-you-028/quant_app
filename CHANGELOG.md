@@ -2,6 +2,7 @@
 
 ## 2026-10-17
 
+- Bundle and register the licensed Noto Traditional Chinese font for chart titles, legends and annotations on Render Linux. Verify font loading during the Docker build and keep a single asset-history point on its actual date.
 - Persist public market data and validated updater checkpoints in a separate PostgreSQL cache, using MARKET_DATABASE_URL or the existing Neon connection. Restore it before updates so Render cold starts no longer depend solely on the October 2 seed.
 - Automatically drain bounded update batches with fair pending-work ordering and SOX/006208 priority. Checkpoint monthly backfills, allow a new data target on the same Taipei day, and distinguish cloud-save failures from successful market downloads.
 - Pause downloads on cloud failures and retry committed local data without redownloading it. Preserve journal data, the active strategy, and frozen forward experiments.

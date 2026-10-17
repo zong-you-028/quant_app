@@ -1,0 +1,36 @@
+{
+  "passed": true,
+  "operating_system_fonts_disabled": true,
+  "font_family": "Noto Sans CJK TC",
+  "baseline_missing_glyph_warnings": 42,
+  "cases": [
+    {
+      "name": "single",
+      "points": 1,
+      "missing_glyph_warnings": 0,
+      "title_and_legend_inside_image": true,
+      "flet_image_created": true,
+      "date_labels": [
+        "2026-10-01"
+      ]
+    },
+    {
+      "name": "multiple",
+      "points": 7,
+      "missing_glyph_warnings": 0,
+      "title_and_legend_inside_image": true,
+      "flet_image_created": true,
+      "date_labels": [
+        "2026-10-02",
+        "2026-10-03",
+        "2026-10-04",
+        "2026-10-05",
+        "2026-10-06",
+        "2026-10-07",
+        "2026-10-08"
+      ]
+    }
+  ],
+  "database_attempts": 0,
+  "http_attempts": 0
+}

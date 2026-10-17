@@ -24,14 +24,9 @@ matplotlib.use("Agg")                       # 非互動後端;搭配下方 Figur
 from matplotlib.figure import Figure        # 用 Figure 物件而非全域 pyplot(thread-safe)
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
-# 讓圖表標題/標註可顯示繁體中文(股票名稱);優先用 Windows 內建黑體,
-# 找不到時自動退回預設字型(僅中文會變方框,英文標題不受影響)。
-for _cjk in ("Microsoft JhengHei", "Microsoft YaHei", "DFKai-SB", "SimSun"):
-    try:
-        matplotlib.rcParams["font.sans-serif"] = [_cjk] + matplotlib.rcParams.get("font.sans-serif", [])
-    except Exception:
-        pass
-matplotlib.rcParams["axes.unicode_minus"] = False   # 負號正常顯示(避免用 Unicode minus)
+from core.chart_fonts import configure_chart_fonts
+
+configure_chart_fonts()
 
 import flet as ft
 
@@ -966,6 +961,10 @@ def make_asset_figure(history: list) -> Figure:
             markersize=3, label="總資產")
     ax.plot(ts, invested, color="#9E9E9E", linewidth=1.2, linestyle="--",
             label="累計投入")
+    if len(ts) == 1:
+        # Matplotlib otherwise expands a lone date into a multi-year axis.
+        ax.set_xlim(ts[0] - pd.Timedelta(hours=12), ts[0] + pd.Timedelta(hours=12))
+        ax.set_xticks(ts, [ts[0].strftime("%Y-%m-%d")])
     ax.set_title("總資產成長曲線", fontsize=9)
     ax.tick_params(labelsize=7)
     ax.grid(True, alpha=0.2)
