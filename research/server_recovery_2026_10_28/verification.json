@@ -1,0 +1,36 @@
+{
+  "startup": {
+    "http_status": 200,
+    "websocket_connected": true,
+    "runtime_package_install": false,
+    "login_submitted": false,
+    "python": "3.12.14",
+    "versions": {
+      "flet": "0.85.2",
+      "flet-web": "0.85.2",
+      "flet-charts": "0.85.2",
+      "fastapi": "0.136.3",
+      "starlette": "1.2.1",
+      "uvicorn": "0.48.0",
+      "certifi": "2026.10.23"
+    }
+  },
+  "pip_check": "No broken requirements found",
+  "regression": {
+    "collected": 357,
+    "passed_in_deployment_runtime": 356,
+    "requires_original_research_runtime": 1,
+    "formal_database_attempts": 0,
+    "external_http_attempts": 0
+  },
+  "historic_runtime_retest": {
+    "test": "test_pinned_paper_runtime.py::test_actual_identity_verify_ignores_host_import_paths_and_journal_credentials",
+    "passed": 1,
+    "elapsed_seconds": 14.91,
+    "python": "3.13.14",
+    "sqlite": "3.50.4",
+    "numpy": "2.2.6",
+    "pandas": "2.3.2",
+    "original_archive_changed": false
+  }
+}

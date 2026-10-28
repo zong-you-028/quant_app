@@ -2199,9 +2199,8 @@ def _build_app(page: ft.Page, on_logout=None):
 # ---------------------------------------------------------------------------
 # 進入點:
 #   桌面視窗:  python main.py
-#   瀏覽器:    flet run -w main.py   (Flet 0.85 web 模式請用 CLI;
-#              programmatic 的 view=WEB_BROWSER 在 0.85 會 add_web_socket 報錯)
-# 新版 ft.run(main)、舊版 ft.app(target=main),try/except 相容。
+#   瀏覽器:    FLET_FORCE_WEB_SERVER=true python main.py
+# requirements.txt 固定相容的 Flet / FastAPI / Starlette，建置時檢查實際啟動。
 async def main(page: ft.Page):
     """本機直接開啟；Web 部署先驗證 APP_PASSWORD 才載入投資資料。"""
     page.title = "量化交易燈號系統｜登入"
@@ -2306,7 +2305,4 @@ async def main(page: ft.Page):
 
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    try:
-        ft.run(main)                 # Flet 0.80+ 桌面
-    except (AttributeError, TypeError):
-        ft.app(target=main)          # 舊版 fallback
+    ft.run(main)

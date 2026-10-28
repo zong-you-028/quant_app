@@ -1,0 +1,85 @@
+........................................................................ [ 20%]
+........................................................................ [ 40%]
+........................................................................ [ 60%]
+..............F......................................................... [ 80%]
+.....................................................................    [100%]
+================================== FAILURES ===================================
+_ test_actual_identity_verify_ignores_host_import_paths_and_journal_credentials _
+
+tmp_path = WindowsPath('D:/quant_app/data/server_recovery_2026_10_28/tmp/pytest-of-USER/pytest-0/test_actual_identity_verify_ig0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001DD9591EF30>
+
+    @pytest.mark.skipif(not (launch.DEFAULT_ARCHIVE / "protocol.json").exists(), reason="Local original paper archive not present")
+    def test_actual_identity_verify_ignores_host_import_paths_and_journal_credentials(tmp_path, monkeypatch):
+        (tmp_path / "config.py").write_text("raise AssertionError('host config must not load')")
+        monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+        monkeypatch.setenv("APP_DATA_DIR", str(launch.ROOT / "data"))
+        monkeypatch.setenv("JOURNAL_DATABASE_URL", "postgresql://synthetic-never-connect.invalid/test")
+        before = launch.inventory(launch.DEFAULT_ARCHIVE)
+>       result = launch.run("verify")
+                 ^^^^^^^^^^^^^^^^^^^^
+
+test_pinned_paper_runtime.py:90:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mode = 'verify'
+archive = WindowsPath('D:/quant_app/data/paper_validation/forward_2026_10_03_v1')
+market_db = None, sox_csv = None, timeout = 240
+
+    def run(mode="verify", archive=DEFAULT_ARCHIVE, market_db=None, sox_csv=None, timeout=240):
+        if mode not in ("verify", "replay", "capture-copy"):
+            raise ValueError("Only verify, replay and disposable capture-copy are allowed")
+        archive = Path(archive).resolve()
+        if (archive / ".archive.lock").exists():
+            raise RuntimeError("Original experiment is being recorded; try when its writer is idle")
+        if market_db and Path(market_db).resolve() == (ROOT / "data/market.db").resolve():
+            raise ValueError("Use a separate market-only cache, never the actual app database")
+        if market_db and mode != "capture-copy":
+            raise ValueError("An input market cache is supported only for disposable capture-copy")
+        before = inventory(archive)
+        with tempfile.TemporaryDirectory(prefix="quant_pinned_paper_") as temporary:
+            temporary = Path(temporary)
+            target = archive
+            if mode == "capture-copy":
+                target = temporary / "archive_copy"
+                for relative in before:
+                    destination = target / relative
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(archive / relative, destination)
+                if inventory(target) != before:
+                    raise ValueError("Archive changed while being copied; no capture was started")
+            environment = dict(os.environ, APP_DATA_DIR=str(temporary / "isolated_cache"),
+                               JOURNAL_DATABASE_URL="", PYTHONDONTWRITEBYTECODE="1")
+            environment.pop("PYTHONPATH", None)
+            environment.pop("FINMIND_TOKEN", None)
+            if mode == "capture-copy":
+                environment["PINNED_CAPTURE_IS_DISPOSABLE_COPY"] = "1"
+            command = [sys.executable, str(HERE / "bootstrap.py"), mode,
+                       "--archive", str(target), "--host-root", str(ROOT)]
+            if market_db:
+                command.extend(["--market-db", str(Path(market_db).resolve())])
+            if sox_csv:
+                command.extend(["--sox-csv", str(Path(sox_csv).resolve())])
+            completed = subprocess.run(command, cwd=HERE, env=environment,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+            after = inventory(archive)
+            if after != before:
+                raise AssertionError("Original archive changed during verification; investigate its separate writer")
+            if completed.returncode:
+>               raise RuntimeError(completed.stderr.decode("utf-8", errors="replace")[-3000:])
+E               RuntimeError: Traceback (most recent call last):
+
+E                 File "D:\quant_app\research\paper_forward_2026_10_03\pinned_runtime\bootstrap.py", line 133, in <module>
+
+E                   main()
+
+E                 File "D:\quant_app\research\paper_forward_2026_10_03\pinned_runtime\bootstrap.py", line 85, in main
+
+E                   raise pv.ProtocolChanged("Pinned source/runtime identity differs from original protocol; use the recorded dependency versions")
+
+E               core.paper_validation.ProtocolChanged: Pinned source/runtime identity differs from original protocol; use the recorded dependency versions
+
+research\paper_forward_2026_10_03\pinned_runtime\launch.py:70: RuntimeError
+=========================== short test summary info ===========================
+FAILED test_pinned_paper_runtime.py::test_actual_identity_verify_ignores_host_import_paths_and_journal_credentials
+1 failed, 356 passed in 264.27s (0:04:24)

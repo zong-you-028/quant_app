@@ -1,0 +1,21 @@
+{
+  "pytest_exit_code": 1,
+  "elapsed_seconds": 264.76,
+  "root_test_files": 34,
+  "collected_tests": 357,
+  "test_counts": {
+    "passed": 356,
+    "failed": 1,
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0,
+    "errors": 0,
+    "collection_errors": 0
+  },
+  "formal_database_attempts": 0,
+  "isolated_connections": 1742,
+  "network_attempts": 0,
+  "isolated_database_count": 94,
+  "guard_includes_sqlite_file_uri": true,
+  "guard_blocks_requests_session_request": true
+}

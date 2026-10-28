@@ -1,6 +1,6 @@
 # Deploy to Render
 
-**Version update date:** 2026-10-17
+**Version update date:** 2026-10-28
 
 This project is ready to run as a Render web service. Trading-journal data is
 stored in Neon PostgreSQL. Public market bundles also persist in PostgreSQL;
@@ -67,6 +67,20 @@ Existing SQLite journal rows are not migrated automatically. Only explicitly
 allowed public market fields are adopted into the cloud cache.
 
 ## Security
+
+The Docker build installs the complete pinned Flet web stack, checks package
+dependencies and runs `scripts/check_web_startup.py` against the real entry
+point. This verifies HTTP and WebSocket startup with a temporary data directory,
+empty cloud credentials and a locked login screen. Do not remove `flet-web` or
+upgrade FastAPI/Starlette independently: an on-demand web install previously
+caused cold starts to fail with an unsupported `openapi_prefix` argument.
+
+The image installs current distribution `ca-certificates` and requires
+`certifi>=2026.10.19`, following Render's
+[eMudhra advisory](https://render.com/docs/advisory-emudhra). Redeploy with
+**Manual Deploy > Clear build cache & deploy** when updating trust stores so
+cached Docker layers cannot retain old system certificates. This service uses
+Python; it does not run Node.js or PHP.
 
 The Render URL is publicly reachable. Do not store sensitive information in
 the journal without a strong application password. The optional "remember me"

@@ -4,6 +4,8 @@ __pycache__/
 .git/
 .agents/
 .codex/
+.venv/
+venv/
 dist/
 data/
 .env

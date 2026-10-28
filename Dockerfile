@@ -6,8 +6,11 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 COPY requirements.txt ./
-RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libgomp1 \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir -r requirements.txt && pip check
 
 COPY . ./
 
@@ -17,6 +20,10 @@ RUN python -c "from core.chart_fonts import configure_chart_fonts, FONT_PATH; fr
 # Bootstrap Render with the same real market/name cache used locally.
 # The seed contains no journal tables or personal trading records.
 RUN mkdir -p data && python -c "import gzip, shutil; src=gzip.open('data_seed/market.db.gz','rb'); dst=open('data/market.db','wb'); shutil.copyfileobj(src,dst); src.close(); dst.close(); shutil.copyfile('data_seed/sox.csv','data/sox.csv')"
+
+# Exercise the real HTTP/WebSocket startup, including Flet's FastAPI wrapper.
+# An incompatible web dependency must fail the build, not a production restart.
+RUN python scripts/check_web_startup.py
 
 # Render supplies port 10000 by default. Flet reads these on startup and
 # exposes this as a browser-based WebSocket application.
