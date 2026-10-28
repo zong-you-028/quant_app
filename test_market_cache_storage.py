@@ -304,3 +304,119 @@ def test_production_gateway_uses_conflict_insert_row_lock_and_per_resource_trans
     assert sum("FOR UPDATE" in sql for sql in conn.sql) == 2
     assert conn.commits == 3
     assert storage._decode(conn.payload, "stock:2330")["ohlcv"][-1][0] == "2026-10-16"
+
+
+def test_neon_pooler_rejects_startup_options_but_gateway_reads_and_saves(monkeypatch):
+    class PoolerConnection:
+        def __init__(self):
+            self.payload = None
+            self.active = False
+            self.local_settings = set()
+            self.transactions = 0
+            self.closed = False
+
+        @contextmanager
+        def transaction(self):
+            assert not self.active
+            self.active = True
+            self.transactions += 1
+            try:
+                yield
+            finally:
+                self.active = False
+                self.local_settings.clear()  # PgBouncer may switch servers now.
+
+        def execute(self, sql, params=()):
+            assert self.active, "All cache work must remain in an explicit transaction"
+            if sql.startswith("SET LOCAL"):
+                self.local_settings.add(sql)
+            elif not sql.startswith("SET TRANSACTION"):
+                assert self.local_settings == {
+                    "SET LOCAL statement_timeout = '15s'", "SET LOCAL lock_timeout = '8s'"}
+            if sql.startswith("INSERT") and self.payload is None:
+                self.payload = params[1]
+            if sql.startswith("UPDATE"):
+                self.payload = params[0]
+            return SimpleNamespace(fetchone=lambda: (self.payload,),
+                                   fetchall=lambda: [("stock:2330", self.payload)])
+
+        def close(self):
+            self.closed = True
+
+    conn = PoolerConnection()
+    def connect(url, **kwargs):
+        if "options" in kwargs:
+            raise RuntimeError("unsupported startup parameter in options: statement_timeout")
+        assert kwargs == {"connect_timeout": 8, "autocommit": True, "prepare_threshold": None}
+        return conn
+    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=connect))
+    with storage._PostgresGateway("postgresql://synthetic-pooler.invalid/cache") as gateway:
+        gateway.save_bundle("stock:2330", bundle())
+        gateway.save_bundle("stock:2330", bundle(day="2026-10-16"))
+        key, payload = gateway.read_all()[0]
+        assert storage._decode(payload, key)["ohlcv"][-1][0] == "2026-10-16"
+        assert not conn.active and not conn.local_settings
+    assert conn.transactions == 4 and conn.closed
+
+
+@pytest.mark.parametrize("error, code", [
+    ("unsupported startup parameter in options: statement_timeout", "pooler_startup_parameter"),
+    ("connection timeout expired", "database_timeout"),
+    ("password authentication failed", "authentication_failed"),
+    ("endpoint is suspended", "database_suspended"),
+    ("certificate verify failed", "tls_verification_failed"),
+])
+def test_cloud_error_classification_never_logs_credentials(state, monkeypatch, capsys, error, code):
+    def unavailable():
+        raise RuntimeError(error + " postgresql://private-password@secret-host/db")
+    monkeypatch.setattr(storage, "_open_cloud", unavailable)
+    result = storage.restore_market_cache()
+    output = capsys.readouterr().out
+    assert json.loads(output)["error_code"] == code
+    assert not result["durable"] and result["error"]
+    assert "private-password" not in output + json.dumps(result)
+    assert "secret-host" not in output + json.dumps(result)
+
+
+def test_startup_probe_is_read_only_and_reports_cache_access_without_secrets(monkeypatch, capsys):
+    payload = storage._encode(bundle())
+    calls = []
+    class Connection:
+        @contextmanager
+        def transaction(self):
+            yield
+        def execute(self, sql, params=()):
+            calls.append(sql)
+            if sql == "SELECT 1":
+                row = (1,)
+            elif "to_regclass" in sql:
+                row = (storage.TABLE,)
+            elif "has_table_privilege" in sql:
+                row = (True, True, True)
+            elif "count(*)" in sql:
+                row = (1,)
+            else:
+                row = ("stock:2330", payload)
+            return SimpleNamespace(fetchone=lambda: row)
+        def close(self):
+            calls.append("CLOSE")
+    monkeypatch.setenv("JOURNAL_DATABASE_URL", "postgresql://private-password@secret-host/db")
+    monkeypatch.setattr(storage, "_connect", lambda url: Connection())
+    result = storage.log_cloud_connectivity()
+    assert result["connected"] and result["cache_writable"] and result["sample_payload_valid"]
+    assert result["public_resources"] == 1
+    assert calls[0] == "SET TRANSACTION READ ONLY"
+    assert all(sql.startswith(("SET ", "SELECT ", "CLOSE")) for sql in calls)
+    output = capsys.readouterr().out
+    assert "private-password" not in output and "secret-host" not in output
+
+
+def test_startup_probe_reports_connection_failure_without_raising(monkeypatch, capsys):
+    monkeypatch.setenv("JOURNAL_DATABASE_URL", "postgresql://private-password@secret-host/db")
+    def unavailable(url):
+        raise RuntimeError("connection timeout: " + url)
+    monkeypatch.setattr(storage, "_connect", unavailable)
+    result = storage.log_cloud_connectivity()
+    assert not result["connected"] and result["error_code"] == "database_timeout"
+    output = capsys.readouterr().out
+    assert "private-password" not in output and "secret-host" not in output

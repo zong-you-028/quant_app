@@ -1145,7 +1145,7 @@ def format_update_status(result: dict) -> str:
         f"資料日 {oldest}～{newest} · 更新 {result['updated']} 檔 · "
         f"已達目標 {result['current']}{recovery} · 尚未到目標 {result.get('stale', 0)} · "
         f"籌碼過期 {len(result.get('stale_chip_symbols', []))} · "
-        f"失敗 {result['failed']} · 待續抓 {result.get('pending', 0)}（目標 {result.get('expected_asof', '未知')}，"
+        f"失敗 {result['failed']} · 待續抓 {result.get('pending', 0)}（目標 {result.get('expected_asof') or '尚未確認'}，"
         "僅排除週末；延遲來源或休市可能尚無新資料）"
     )
 

@@ -1,6 +1,6 @@
 # Deploy to Render
 
-**Version update date:** 2026-10-28
+**Version update date:** 2026-10-29
 
 This project is ready to run as a Render web service. Trading-journal data is
 stored in Neon PostgreSQL. Public market bundles also persist in PostgreSQL;
@@ -45,6 +45,12 @@ The app uses `MARKET_DATABASE_URL` when set, otherwise the existing
 must be allowed to create/read/write `quant_market_cache_v1`. The app creates
 this separate table automatically on first access; it never copies journal
 tables into market bundles or changes their schema.
+
+Pooled Neon connections are supported. Cache query and lock timeouts are set
+inside each transaction with `SET LOCAL`, rather than unsupported connection
+startup options. A background startup probe logs `market_cache_connectivity`
+with connection/table access results. Failures log a safe `error_code` without
+connection strings or raw driver messages.
 
 Bundles explicitly allow only public OHLCV, foreign-shareholding, stock names,
 SOX and validated update/backfill metadata. They are gzip JSON, keyed by resource,

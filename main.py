@@ -2305,4 +2305,9 @@ async def main(page: ft.Page):
 
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    from core.market_cache_storage import configured, log_cloud_connectivity
+    if configured():
+        import threading
+        threading.Thread(target=log_cloud_connectivity, daemon=True,
+                         name="market-cache-connectivity").start()
     ft.run(main)

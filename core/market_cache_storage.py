@@ -4,7 +4,7 @@ The app keeps SQLite as its read cache. Only explicitly listed public quote,
 shareholding, name, SOX, and updater-checkpoint fields cross this boundary.
 Importing this module neither loads the app configuration nor connects anywhere.
 """
-from contextlib import closing
+from contextlib import closing, contextmanager
 import calendar
 import datetime as dt
 import gzip
@@ -208,20 +208,36 @@ def _merge_bundles(existing, incoming):
     return _validate(result)
 
 
+def _connect(url):
+    import psycopg
+    # Neon/PgBouncer rejects statement_timeout/lock_timeout in startup options.
+    # Bound each transaction instead; session SETs also cannot survive pooling.
+    return psycopg.connect(url, connect_timeout=8, autocommit=True,
+                           prepare_threshold=None)
+
+
+@contextmanager
+def _bounded_transaction(conn, *, read_only=False):
+    with conn.transaction():
+        if read_only:
+            conn.execute("SET TRANSACTION READ ONLY")
+        conn.execute("SET LOCAL statement_timeout = '15s'")
+        conn.execute("SET LOCAL lock_timeout = '8s'")
+        yield
+
+
 class _PostgresGateway:
     def __init__(self, url):
         self._url = url
         self._conn = None
 
     def __enter__(self):
-        import psycopg
         try:
-            self._conn = psycopg.connect(self._url, connect_timeout=8,
-                                         options="-c statement_timeout=15000 -c lock_timeout=8000")
-            self._conn.execute(f"CREATE TABLE IF NOT EXISTS {TABLE} ("
-                               "cache_key TEXT PRIMARY KEY,payload BYTEA NOT NULL,"
-                               "updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)")
-            self._conn.commit()
+            self._conn = _connect(self._url)
+            with _bounded_transaction(self._conn):
+                self._conn.execute(f"CREATE TABLE IF NOT EXISTS {TABLE} ("
+                                   "cache_key TEXT PRIMARY KEY,payload BYTEA NOT NULL,"
+                                   "updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)")
             return self
         except Exception:
             if self._conn is not None:
@@ -232,11 +248,12 @@ class _PostgresGateway:
         self._conn.close()
 
     def read_all(self):
-        return self._conn.execute(f"SELECT cache_key,payload FROM {TABLE} ORDER BY cache_key").fetchall()
+        with _bounded_transaction(self._conn, read_only=True):
+            return self._conn.execute(f"SELECT cache_key,payload FROM {TABLE} ORDER BY cache_key").fetchall()
 
     def save_bundle(self, key, bundle):
         # INSERT also serializes the first writers, before a row exists to lock.
-        with self._conn.transaction():
+        with _bounded_transaction(self._conn):
             self._conn.execute(f"INSERT INTO {TABLE}(cache_key,payload) VALUES (%s,%s) "
                                "ON CONFLICT(cache_key) DO NOTHING", (key, _encode(bundle)))
             row = self._conn.execute(f"SELECT payload FROM {TABLE} WHERE cache_key=%s FOR UPDATE", (key,)).fetchone()
@@ -247,6 +264,59 @@ class _PostgresGateway:
 
 def _open_cloud():
     return _PostgresGateway(_url())
+
+
+def _error_code(exc):
+    if isinstance(exc, CachePayloadError):
+        return "invalid_payload"
+    # Inspect locally, but never return or log driver text (URLs may be in it).
+    message = str(exc).lower()
+    state = getattr(exc, "sqlstate", None)
+    if "unsupported startup parameter" in message:
+        return "pooler_startup_parameter"
+    if state == "42501":
+        return "permission_denied"
+    if state == "28P01" or "password authentication failed" in message:
+        return "authentication_failed"
+    if any(term in message for term in ("quota", "compute time", "suspended")):
+        return "database_suspended"
+    if any(term in message for term in ("certificate verify", "ssl error", "tls error")):
+        return "tls_verification_failed"
+    if "timeout" in message or "timed out" in message or state in ("57014", "55P03"):
+        return "database_timeout"
+    if state and state.startswith("08"):
+        return "connection_failed"
+    return "storage_failed"
+
+
+def log_cloud_connectivity():
+    """Read-only startup probe using the service's existing environment only."""
+    report = {"event": "market_cache_connectivity", "configured": configured(),
+              "connected": False}
+    if report["configured"]:
+        try:
+            with closing(_connect(_url())) as conn, _bounded_transaction(conn, read_only=True):
+                assert conn.execute("SELECT 1").fetchone()[0] == 1
+                report["connected"] = True
+                exists = conn.execute("SELECT to_regclass(%s)", (TABLE,)).fetchone()[0]
+                report["cache_table_exists"] = bool(exists)
+                if exists:
+                    permissions = conn.execute(
+                        "SELECT has_table_privilege(%s, 'SELECT'),"
+                        "has_table_privilege(%s, 'INSERT'),has_table_privilege(%s, 'UPDATE')",
+                        (TABLE, TABLE, TABLE)).fetchone()
+                    report["cache_readable"] = bool(permissions[0])
+                    report["cache_writable"] = all(permissions[1:])
+                    if report["cache_readable"]:
+                        report["public_resources"] = conn.execute(f"SELECT count(*) FROM {TABLE}").fetchone()[0]
+                        sample = conn.execute(f"SELECT cache_key,payload FROM {TABLE} ORDER BY cache_key LIMIT 1").fetchone()
+                        if sample:
+                            _decode(sample[1], sample[0])
+                            report["sample_payload_valid"] = True
+        except Exception as exc:
+            report["error_code"] = _error_code(exc)
+    print(json.dumps(report), flush=True)
+    return report
 
 
 def _has_table(conn, name):
@@ -365,10 +435,21 @@ def _result():
 
 def _error(result, key, exc):
     # Never copy driver exceptions: they can contain credentials or source rows.
-    message = ("雲端行情快取格式無效，未套用此筆資料" if isinstance(exc, CachePayloadError)
-               else "雲端行情保存或還原失敗；本機資料仍保留，可稍後重試")
+    code = _error_code(exc)
+    message = {
+        "invalid_payload": "雲端行情快取格式無效，未套用此筆資料",
+        "pooler_startup_parameter": "雲端資料庫連線參數不相容，請更新部署版本",
+        "permission_denied": "雲端行情資料庫權限不足，請檢查快取表讀寫權限",
+        "authentication_failed": "雲端資料庫驗證失敗，請檢查服務的連線設定",
+        "database_suspended": "雲端資料庫暫停或額度不足，請檢查資料庫服務狀態",
+        "tls_verification_failed": "雲端資料庫安全連線驗證失敗，請檢查憑證設定",
+        "database_timeout": "雲端資料庫連線或查詢逾時，本機資料仍保留，可稍後重試",
+    }.get(code, "雲端行情保存或還原失敗；本機資料仍保留，可稍後重試")
     result["errors"][key] = message
     result["error"] = message
+    safe_key = key if re.fullmatch(r"(?:stock:)?[A-Z0-9]{2,16}|index:\^SOX|\^SOX|cloud", key) else "resource"
+    print(json.dumps({"event": "market_cache_error", "resource": safe_key,
+                      "error_code": code}), flush=True)
 
 
 def save_symbols(symbols):

@@ -221,6 +221,9 @@ def test_configured_cloud_restore_failure_stops_before_sox_or_stock_download(sou
     assert result["cloud_errors"] == {"restore": "shared store unavailable"}
     assert result["public_message"] and result["continuation_stop_reason"]
     assert result["data_dates"] == {} and result["asof"] is None
+    from core.data_pipeline import format_update_status
+    assert "None" not in format_update_status(result)
+    assert "目標 尚未確認" in format_update_status(result)
 
 
 def test_successful_cloud_restore_proceeds_and_merges_save_errors(sources, monkeypatch):
