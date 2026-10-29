@@ -236,8 +236,10 @@ def test_app_sox_download_excludes_incomplete_us_session_and_is_bounded(store, m
     frame = pd.DataFrame({"Close": [5000., 5100., 9999.]},
                          index=pd.to_datetime(["2026-10-05", "2026-10-06", "2026-10-07"]))
     monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(
-        download=lambda *args, **kwargs: calls.append(kwargs) or frame))
+        Ticker=lambda symbol: SimpleNamespace(
+            history=lambda **kwargs: calls.append(kwargs) or frame)))
     result = daily.refresh_sox()
     assert result.index.max() == pd.Timestamp("2026-10-06")
     assert 9999. not in result.values
-    assert len(calls) == 1 and calls[0]["timeout"] == 8 and not calls[0]["threads"]
+    assert len(calls) == 1 and calls[0]["timeout"] == 8 and calls[0]["raise_errors"]
+    assert calls[0]["end"] == "2026-10-07"

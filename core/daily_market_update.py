@@ -307,8 +307,15 @@ def _download_sox():
     start = ((cached.index.max() - pd.Timedelta(days=5)).strftime("%Y-%m-%d")
              if cached is not None else "2014-06-01")
     import yfinance as yf
-    frame = yf.download(getattr(dp.config, "ROTATION_SOX_SYMBOL", "^SOX"),
-                        start=start, progress=False, auto_adjust=True, threads=False, timeout=8)
+    target = _sox_target()
+    try:
+        frame = yf.Ticker(getattr(dp.config, "ROTATION_SOX_SYMBOL", "^SOX")).history(
+            start=start, end=(target + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+            auto_adjust=True, raise_errors=True, timeout=8)
+    except Exception as exc:
+        if type(exc).__name__ == "YFRateLimitError":
+            raise RuntimeError("費半來源暫時限流，已保存行情仍保留，請稍後重試") from None
+        raise RuntimeError("費半來源連線失敗，已保存行情仍保留，請稍後重試") from None
     if frame is None or frame.empty:
         raise RuntimeError("費半來源未回傳新資料")
     series = frame["Close"]
@@ -316,7 +323,7 @@ def _download_sox():
         series = series.iloc[:, 0]
     series = series.astype(float).rename("close")
     series.index = pd.to_datetime(series.index).tz_localize(None)
-    series = series.dropna().sort_index().loc[:_sox_target()]
+    series = series.dropna().sort_index().loc[:target]
     if series.empty:
         raise RuntimeError("費半來源尚無已完成交易日的資料")
     if cached is not None:
@@ -389,4 +396,7 @@ def refresh_sox(raise_errors=True):
             conn.commit()
         mr._write_sox(series)
         _save_sox_cloud()
+        print(json.dumps({"event": "sox_update", "asof": str(series.index.max().date()),
+                          "target": str(target.date()), "downloaded": downloaded,
+                          "cloud_saved": storage.configured()}), flush=True)
         return series

@@ -108,7 +108,7 @@ def _universe_text(result=None) -> str:
         listed = sum(markets.get(symbol) == "twse" for symbol in config.UNIVERSE)
         otc = sum(markets.get(symbol) == "tpex" for symbol in config.UNIVERSE)
         text = (f"選股池：估算市值前 {size} 名（上市 {listed}／上櫃 {otc}）"
-                f" · 名單日 {date}\n按有有效收盤的普通股選池；最多持有 8 檔。"
+                f" · 成分名單快照 {date}（非行情日期）\n按有有效收盤的普通股選池；最多持有 8 檔。"
                 "滿 252 日資料才可排名，成分採固定快照。")
         if result and "ranking" in result:
             text += f"\n最近換股日可排名 {len(result['ranking'])}／{size} 檔。"
@@ -1470,7 +1470,7 @@ def _build_app(page: ft.Page, on_logout=None):
     async def run_daily_update(startup=False):
         if compute_state["busy"]:
             return
-        set_computing(True, "啟動後檢查最新資料…" if startup else "正在更新每日資料…")
+        set_computing(True, "已載入保存行情，檢查是否有新資料…" if startup else "正在更新每日資料…")
         invalidate_results("資料更新中，完成後請重新計算目前模型。")
         _set_button_label(update_btn, "更新中…")
         update_progress.visible = True
@@ -2201,6 +2201,32 @@ def _build_app(page: ft.Page, on_logout=None):
 #   桌面視窗:  python main.py
 #   瀏覽器:    FLET_FORCE_WEB_SERVER=true python main.py
 # requirements.txt 固定相容的 Flet / FastAPI / Starlette，建置時檢查實際啟動。
+async def _open_saved_app(page, on_logout=None):
+    """Show the authenticated app only after its saved public cache is ready."""
+    from core.market_startup import prepare_saved_market_data
+    page.add(ft.Column([
+        ft.Text("正在載入已保存的雲端行情…", size=16),
+        ft.Text("載入完成後會直接顯示已保存的行情日期，無需重新下載台股。", size=12),
+        ft.ProgressBar(),
+    ], spacing=12))
+    page.update()
+    try:
+        outcome = await asyncio.to_thread(prepare_saved_market_data)
+    except Exception:
+        outcome = {"configured": True, "durable": False,
+                   "error": "雲端行情載入失敗，請稍後重試；目前資料尚未確認。"}
+    page.clean()
+    if outcome.get("configured") and not outcome.get("durable"):
+        message = ft.Text(outcome.get("error") or "雲端行情尚未還原完成", color="#B71C1C")
+        async def retry(e=None):
+            page.clean()
+            await _open_saved_app(page, on_logout)
+        page.add(ft.Column([message, ft.Button(content="重試載入已保存行情", on_click=retry)], spacing=12))
+        page.update()
+        return
+    _build_app(page, on_logout=on_logout)
+
+
 async def main(page: ft.Page):
     """本機直接開啟；Web 部署先驗證 APP_PASSWORD 才載入投資資料。"""
     page.title = "量化交易燈號系統｜登入"
@@ -2228,9 +2254,9 @@ async def main(page: ft.Page):
         show_login()
         page.update()
 
-    def unlock():
+    async def unlock():
         clear_page()
-        _build_app(page, on_logout=logout)
+        await _open_saved_app(page, on_logout=logout)
 
     async def submit_login(e=None):
         candidate = password_field.value or ""
@@ -2242,7 +2268,7 @@ async def main(page: ft.Page):
                     await preferences.remove(AUTH_STORAGE_KEY)
                 except Exception:
                     pass
-            unlock()
+            await unlock()
             return
         login_message.value = "密碼錯誤"
         login_message.color = "#B71C1C"
@@ -2298,16 +2324,17 @@ async def main(page: ft.Page):
     expected = _auth_token(configured_password) if configured_password else ""
     if (isinstance(remembered, str) and expected
             and hmac.compare_digest(remembered, expected)):
-        unlock()
+        await unlock()
     else:
         show_login()
 
 
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    from core.market_cache_storage import configured, log_cloud_connectivity
+    from core.market_cache_storage import configured
     if configured():
         import threading
-        threading.Thread(target=log_cloud_connectivity, daemon=True,
-                         name="market-cache-connectivity").start()
+        from core.market_startup import prepare_saved_market_data
+        threading.Thread(target=prepare_saved_market_data, daemon=True,
+                         name="market-cache-startup").start()
     ft.run(main)

@@ -20,9 +20,16 @@ SQLite is a disposable local read cache, restored before updates start.
 Journal entries survive Render restarts in Neon. The Docker image includes a
 journal-free market/name seed. A fresh instance then restores previously saved
 market bundles from Neon before checking for missing updates.
+The authenticated screen waits for this restoration before reading dates or
+valuing holdings. Multiple visits share one restored cache per instance. If
+restoration fails, a retry screen is shown instead of presenting October 2 seed
+quotes as loaded cloud data. The fixed universe snapshot date is labelled
+separately from the current market-data date.
 The current seed includes public TWSE/FinMind market rows and SOX through
 2026-10-02, with no journal records. SOX is also initialized for custom
-`APP_DATA_DIR` locations; the tested yfinance dependency is included.
+`APP_DATA_DIR` locations; the pinned yfinance 1.7.0 dependency includes current
+transport compatibility fixes. SOX requests exclude unfinished US sessions and
+retain source failures explicitly instead of silently accepting empty frames.
 
 Startup and manual updates share one progress display and update lock. Batches
 have a 90-second request budget and automatically continue pending work. SOX
