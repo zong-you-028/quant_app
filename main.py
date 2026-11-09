@@ -1725,7 +1725,7 @@ def _build_app(page: ft.Page, on_logout=None):
     def load_journal_view():
         """Fetch remote journal reads off the UI loop during market updates."""
         return {"trades": journal.list_trades(), "positions": journal.positions(),
-                "cash": journal.cash_balance(), "summary": journal.summary(),
+                "summary": journal.summary(),
                 "history": journal.list_asset_history(), "plans": journal.list_dca_plans()}
 
     def refresh_journal(snapshot=None):
@@ -1738,7 +1738,7 @@ def _build_app(page: ft.Page, on_logout=None):
             [ft.Text("目前沒有持倉", size=12,
                      color=getattr(C, "GREY", "#9E9E9E"))]
         )
-        j_cash.value = f"{snapshot['cash']:g}"
+        j_cash.value = f"{snapshot['summary'].get('cash', 0):g}"
         records_label = ("收合" if j_state["records_expanded"] else "展開")
         records_label += f"投資紀錄（{len(trades)} 筆）"
         j_records_btn.content = records_label

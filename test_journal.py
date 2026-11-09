@@ -10,6 +10,7 @@ summary 已實現損益 -> delete_trade 還原,最後確認 DB 乾淨。
 """
 import pandas as pd
 import datetime as dt
+import sqlite3
 import pytest
 
 import config
@@ -248,26 +249,17 @@ def test_dca_plan_autofill():
 
 
 def test_summary_on_sell():
-    """賣出後:總投入扣掉該筆本金、已實現=賣出所得−投入、總資產=持倉現值+回收現金。"""
-    journal.init_journal()
-    base = journal.summary()
-    inv0, real0, cash0 = base["invested"], base["realized_pnl"], base["realized_proceeds"]
-    mv0 = base["market_value"]                          # 賣出後總資產應回到此
-    tid = journal.add_buy("2330", 30000, 600)          # 50 股
-    s1 = journal.summary()
-    assert abs(s1["invested"] - (inv0 + 30000)) < 1e-6, "買入後總投入應 +本金"
-    journal.close_trade(tid, 660)                       # 賣出所得 = 50×660 = 33000
-    s2 = journal.summary()
-    # 總投入扣回 30000(該筆本金離開持倉)
-    assert abs(s2["invested"] - inv0) < 1e-6, "賣出後總投入應扣掉該筆本金"
-    # 已實現 = 賣出所得 − 投入 = 33000 - 30000 = 3000
-    assert abs(s2["realized_pnl"] - (real0 + 3000)) < 1e-6, "已實現=賣出所得−投入"
-    # 回收現金 += 賣出所得 33000(僅供參考,不計入總資產)
-    assert abs(s2["realized_proceeds"] - (cash0 + 33000)) < 1e-6, "回收現金=賣出所得"
-    # 總資產 = 持倉現值(賣出後該檔已離開,不含回收現金 -> 回到賣出前的持倉現值)
-    assert abs(s2["total_assets"] - s2["market_value"]) < 1e-6, "總資產=持倉現值"
-    assert abs(s2["total_assets"] - mv0) < 1e-6, "賣掉的檔不該再算進總資產"
-    journal.delete_trade(tid)
+    journal.set_cash_balance(2000)
+    tid = journal.add_current_asset("2330", 50, 600)
+    journal.close_trade(tid, 660)
+    journal.close_trade(tid, 680)
+    summary = journal.summary()
+    assert summary["invested"] == summary["market_value"] == 0
+    assert summary["realized_pnl"] == 3000
+    assert summary["realized_proceeds"] == 33000
+    assert summary["cash"] == summary["total_assets"] == 35000
+    journal.snapshot_assets_daily()
+    assert journal.list_asset_history()[0]["total_assets"] == 35000
 
 
 def test_update_partial_reopen():
@@ -293,9 +285,11 @@ def test_update_partial_reopen():
     assert abs(ts[tid]["amount"] - 30000) < 1e-6
     assert ts[nid]["status"] == "closed"
     assert abs(ts[nid]["pnl"] - (20 * 1100 - 20000)) < 1e-6, "部分賣出損益錯誤"
+    assert journal.summary()["total_assets"] == 30 * 650 + 20 * 1100
     # 4) 整筆平倉 -> 復原成持有中
     journal.close_trade(tid, 1200)
     journal.reopen_trade(tid)
+    assert journal.cash_balance() == 22000
     t = next(x for x in journal.list_trades() if x["id"] == tid)
     assert t["status"] == "open" and t["sell_price"] is None
     # 5) 非法值要擋
@@ -340,6 +334,37 @@ def test_current_assets_cash_and_transactions():
         if trade["id"] not in before_ids:
             journal.delete_trade(trade["id"])
     journal.set_cash_balance(base_cash, "測試清理")
+
+
+def test_legacy_sales_with_and_without_cash_movements():
+    uncredited_id = journal.add_current_asset("TEST", 5, 100)
+    credited_id = journal.add_current_asset("TEST", 10, 100)
+    with data_pipeline.get_conn() as conn:
+        conn.execute("UPDATE trades SET status = 'closed', sell_price = 110 WHERE id IN (?, ?)",
+                     (uncredited_id, credited_id))
+        conn.execute("INSERT INTO cash_movements (amount, kind, trade_id, ts) "
+                     "VALUES (1100, 'sell', ?, '2026-10-03')", (credited_id,))
+    assert journal.cash_balance() == 1650
+    journal.update_trade(credited_id, sell_price=120)
+    assert journal.summary()["total_assets"] == 1750
+    journal.reopen_trade(credited_id)
+    assert journal.cash_balance() == 550
+    assert journal.summary()["total_assets"] == 1550
+    journal.delete_trade(uncredited_id)
+    assert journal.cash_balance() == 0
+
+
+def test_multi_lot_sale_rolls_back_if_recording_second_lot_fails():
+    journal.add_current_asset("TEST", 5, 100)
+    second_id = journal.add_current_asset("TEST", 10, 100)
+    with data_pipeline.get_conn() as conn:
+        conn.execute(f"CREATE TRIGGER fail_second_sale BEFORE UPDATE ON trades "
+                     f"WHEN OLD.id = {second_id} BEGIN SELECT RAISE(ABORT, 'test failure'); END")
+    with pytest.raises(sqlite3.IntegrityError, match="test failure"):
+        journal.record_sell("TEST", 8, 100)
+    assert journal.cash_balance() == 0
+    assert journal.positions()[0]["shares"] == 15
+    assert journal.list_cash_movements() == []
 
 
 def test_cash_dividend_and_stock_split():

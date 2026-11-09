@@ -2,7 +2,7 @@
 """
 journal.py - 投資紀錄(交易日誌 / 持倉帳本 + 總資產 + 定期定額)
 從 0 開始記錄每一筆投資:投入金額、買入點位/時間、賣出點位/時間、報酬,
-並彙總「總資產」(持倉現值 + 已實現所得),支援「定期定額(DCA)」自動回補買入。
+並彙總「總資產」(持倉現值 + 帳戶現金),支援「定期定額(DCA)」自動回補買入。
 資料存在與行情同一個 SQLite(config.DB_PATH),純函式、易測試。
 
 資料模型:
@@ -16,8 +16,7 @@ journal.py - 投資紀錄(交易日誌 / 持倉帳本 + 總資產 + 定期定額
   股數 shares = 投入金額 / 買入價
   已平倉:proceeds = shares × 賣出價;損益 = proceeds − 投入
   持有中:現值 = shares × 最新收盤;浮動損益 = 現值 − 投入
-總資產:total_assets = 持倉現值(market_value) + 已實現賣出所得(realized_proceeds)
-        = 累計投入 + 總損益(已實現 + 未實現)
+總資產:total_assets = 持倉現值(market_value) + 帳戶現金(cash，含賣出所得)
 """
 import calendar
 import json
@@ -244,13 +243,29 @@ def _add_cash_movement(amount: float, kind: str, trade_id: int = None,
     return int(movement_id)
 
 
+def _cash_totals(conn):
+    # Closed lots are authoritative for sale proceeds. Linked sell movements
+    # retain the original audit notes and must not credit the same sale again.
+    cash, dividends = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0), "
+        "COALESCE(SUM(CASE WHEN kind = 'dividend' THEN amount ELSE 0 END), 0) "
+        "FROM (SELECT CAST(amount AS DOUBLE PRECISION) AS amount, kind "
+        "FROM cash_movements WHERE kind <> 'sell' OR trade_id IS NULL "
+        "UNION ALL SELECT CAST(shares AS DOUBLE PRECISION) * sell_price, 'sell' "
+        "FROM trades WHERE status = 'closed' AND sell_price IS NOT NULL) AS movements"
+    ).fetchone()
+    return float(cash), float(dividends)
+
+
 def cash_balance() -> float:
-    """目前帳戶現金；由期初現金、買賣與手動調整累加。"""
+    """目前帳戶現金，包含所有已平倉交易的成交金額。"""
     init_journal()
     conn = get_conn()
-    row = conn.execute("SELECT COALESCE(SUM(amount), 0) FROM cash_movements").fetchone()
-    conn.close()
-    return float(row[0] or 0.0)
+    try:
+        cash, _ = _cash_totals(conn)
+        return cash
+    finally:
+        conn.close()
 
 
 def set_cash_balance(balance: float, note: str = "匯入目前現金") -> float:
@@ -401,21 +416,27 @@ def add_buy(symbol: str, amount: float, buy_price: float,
     return int(new_id)
 
 
+def _close_lot(conn, trade_id, sell_price, sell_time):
+    conn.execute(
+        "UPDATE trades SET sell_price = ?, sell_time = ?, status = 'closed' "
+        "WHERE id = ? AND status = 'open'",
+        (sell_price, sell_time, trade_id),
+    )
+
+
 def close_trade(trade_id: int, sell_price: float, sell_time: str = None) -> None:
     """記錄某筆紀錄的賣出(平倉)。sell_price 須 > 0;sell_time 預設現在。"""
     sell_price = float(sell_price)
-    if sell_price <= 0:
+    if not math.isfinite(sell_price) or sell_price <= 0:
         raise ValueError("賣出價需大於 0")
     sell_time = sell_time or _now()
     init_journal()
     conn = get_conn()
-    conn.execute(
-        "UPDATE trades SET sell_price = ?, sell_time = ?, status = 'closed' "
-        "WHERE id = ?",
-        (sell_price, sell_time, int(trade_id)),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        _close_lot(conn, int(trade_id), sell_price, sell_time)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def delete_trade(trade_id: int) -> None:
@@ -461,7 +482,7 @@ def update_trade(trade_id: int, **fields) -> None:
                     clean[k] = None              # 清除停損/停利
                 continue                          # 其餘數字欄空白 = 不變
             x = float(v)
-            if k != "stop_loss" and k != "take_profit" and x <= 0:
+            if k not in ("stop_loss", "take_profit") and (not math.isfinite(x) or x <= 0):
                 conn.close()
                 raise ValueError(f"{k} 需大於 0")
             clean[k] = x
@@ -529,40 +550,29 @@ def reopen_trade(trade_id: int) -> None:
     conn.close()
 
 
-def sell_partial(trade_id: int, sell_shares: float, sell_price: float,
-                 sell_time: str = None) -> int:
-    """
-    部分賣出:把一筆持倉拆成「已平倉(賣掉的股數)」+「持有中(剩餘股數)」。
-    成本(amount)按股數比例分拆;賣出股數 >= 全部時等同整筆平倉。
-    回傳已平倉那筆的 id。
-    """
-    sell_shares = float(sell_shares)
-    sell_price = float(sell_price)
-    if sell_shares <= 0:
-        raise ValueError("賣出股數需大於 0")
-    if sell_price <= 0:
-        raise ValueError("賣出價需大於 0")
-    init_journal()
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT symbol, name, amount, shares, buy_price, buy_time, status, "
-        "source, stop_loss, take_profit, note FROM trades WHERE id = ?",
-        (int(trade_id),)).fetchone()
-    conn.close()
-    if not row:
-        raise ValueError(f"找不到紀錄 #{trade_id}")
-    (sym, name, amount, shares, bp, bt, status, source, sl, tp, note) = row
+def _sale_lots(conn, condition, value):
+    """Lock the lots until their sale or split has committed."""
+    postgres = dialect(conn) == "postgres"
+    if not postgres:
+        conn.execute("BEGIN IMMEDIATE")
+    lock = " FOR UPDATE" if postgres else ""
+    return conn.execute(
+        "SELECT id, symbol, name, amount, shares, buy_price, buy_time, status, "
+        "source, stop_loss, take_profit, note FROM trades "
+        f"WHERE {condition} ORDER BY id{lock}", (value,),
+    ).fetchall()
+
+
+def _sell_lot(conn, lot, sell_shares, sell_price, sell_time):
+    (trade_id, sym, name, amount, shares, bp, bt, status, source, sl, tp, note) = lot
     if status != "open":
         raise ValueError("已平倉的紀錄不能再賣出")
     shares = float(shares)
-    if sell_shares >= shares - 1e-9:             # 賣光 = 整筆平倉
-        close_trade(trade_id, sell_price, sell_time)
-        return int(trade_id)
+    if sell_shares >= shares - 1e-9:
+        _close_lot(conn, trade_id, sell_price, sell_time)
+        return trade_id
 
-    frac = sell_shares / shares
-    sold_amount = float(amount) * frac
-    sell_time = sell_time or _now()
-    conn = get_conn()
+    sold_amount = float(amount) * (sell_shares / shares)
     new_id = insert_id(conn,
         "INSERT INTO trades (symbol, name, amount, shares, buy_price, buy_time, "
         "sell_price, sell_time, status, source, stop_loss, take_profit, note) "
@@ -572,9 +582,28 @@ def sell_partial(trade_id: int, sell_shares: float, sell_price: float,
     conn.execute(
         "UPDATE trades SET amount = ?, shares = ? WHERE id = ?",
         (float(amount) - sold_amount, shares - sell_shares, int(trade_id)))
-    conn.commit()
-    conn.close()
-    return int(new_id)
+    return new_id
+
+
+def sell_partial(trade_id: int, sell_shares: float, sell_price: float,
+                 sell_time: str = None) -> int:
+    """依股數拆分成本，回傳已平倉的 id。股數達到整筆持倉時直接平倉。"""
+    sell_shares, sell_price = float(sell_shares), float(sell_price)
+    if not math.isfinite(sell_shares) or sell_shares <= 0:
+        raise ValueError("賣出股數需大於 0")
+    if not math.isfinite(sell_price) or sell_price <= 0:
+        raise ValueError("賣出價需大於 0")
+    init_journal()
+    conn = get_conn()
+    try:
+        lots = _sale_lots(conn, "id = ?", int(trade_id))
+        if not lots:
+            raise ValueError(f"找不到紀錄 #{trade_id}")
+        closed_id = _sell_lot(conn, lots[0], sell_shares, sell_price, sell_time or _now())
+        conn.commit()
+        return closed_id
+    finally:
+        conn.close()
 
 
 def _hold_days(buy_time: str, end_time: str) -> int:
@@ -593,13 +622,22 @@ def list_trades() -> list:
     """
     init_journal()
     conn = get_conn()
-    rows = conn.execute(
+    try:
+        rows = _trade_rows(conn)
+    finally:
+        conn.close()
+    return _valued_trades(rows)
+
+
+def _trade_rows(conn):
+    return conn.execute(
         "SELECT id, symbol, name, amount, shares, buy_price, buy_time, "
         "sell_price, sell_time, status, source, stop_loss, take_profit, note, "
         "last_rotation FROM trades ORDER BY id DESC"
     ).fetchall()
-    conn.close()
 
+
+def _valued_trades(rows):
     out = []
     today = _now()
     for (tid, sym, name, amount, shares, bp, bt, sp, st, status, source,
@@ -677,25 +715,31 @@ def record_sell(symbol: str, shares: float, price: float,
         raise ValueError("賣出數量需大於 0")
     if not math.isfinite(price) or price <= 0:
         raise ValueError("成交價需大於 0")
-    lots = sorted(
-        [t for t in list_trades()
-         if t["status"] == "open" and t["symbol"] == symbol],
-        key=lambda t: t["id"],
-    )
-    available = sum(t["shares"] for t in lots)
-    if shares > available + 1e-9:
-        raise ValueError(f"持有數量不足（目前 {available:g}）")
-    remaining, closed_ids = shares, []
-    for lot in lots:
-        if remaining <= 1e-9:
-            break
-        sold = min(remaining, lot["shares"])
-        closed_id = sell_partial(lot["id"], sold, price, when)
-        _add_cash_movement(sold * price, "sell", closed_id, when,
-                           note or f"賣出 {symbol}")
-        closed_ids.append(closed_id)
-        remaining -= sold
-    return closed_ids
+    when = when or _now()
+    init_journal()
+    conn = get_conn()
+    try:
+        lots = _sale_lots(conn, "symbol = ? AND status = 'open'", symbol)
+        available = sum(lot[4] for lot in lots)
+        if shares > available + 1e-9:
+            raise ValueError(f"持有數量不足（目前 {available:g}）")
+        remaining, closed_ids = shares, []
+        for lot in lots:
+            if remaining <= 1e-9:
+                break
+            sold = min(remaining, lot[4])
+            closed_id = _sell_lot(conn, lot, sold, price, when)
+            conn.execute(
+                "INSERT INTO cash_movements (amount, kind, trade_id, ts, note) "
+                "VALUES (?, 'sell', ?, ?, ?)",
+                (sold * price, closed_id, when, (note or f"賣出 {symbol}").strip() or None),
+            )
+            closed_ids.append(closed_id)
+            remaining -= sold
+        conn.commit()
+        return closed_ids
+    finally:
+        conn.close()
 
 
 def positions() -> list:
@@ -746,13 +790,22 @@ def summary() -> dict:
       current_return    : 目前持倉收益率 = 未實現損益 / 目前持倉成本
       total_pnl         : 已實現 + 未實現
       total_return      : total_pnl / cost_all(對「曾投入的總本金」算報酬)
-      market_value      : 持倉現值(持有中;無現價則以成本計)
-      realized_proceeds : 賣出回收現金 = Σ 賣出所得[已平倉](僅供參考,不計入總資產)
-      total_assets      : 總資產 = 持倉現值(= 總投入 + 未實現;賣出回收的現金視為已領出)
+      market_value      : 持倉現值(持有中;缺行情時無法估值)
+      realized_proceeds : 歷史賣出所得，已包含在現金異動中
+      total_assets      : 總資產 = 持倉現值 + 帳戶現金
       n_open/n_closed/n_total
-    ★ 賣出時:該筆本金與損益都離開「持倉/總資產」,獲利另記在「已實現損益」(歷史)。
     """
-    trades = list_trades()
+    init_journal()
+    conn = get_conn()
+    try:
+        # Holdings and cash must see the same trade state if a sale is in progress.
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+                     if dialect(conn) == "postgres" else "BEGIN")
+        rows = _trade_rows(conn)
+        cash, dividend_income = _cash_totals(conn)
+    finally:
+        conn.close()
+    trades = _valued_trades(rows)
     open_t = [t for t in trades if t["status"] == "open"]
     closed_t = [t for t in trades if t["status"] == "closed"]
 
@@ -761,14 +814,9 @@ def summary() -> dict:
     realized = sum(t["pnl"] for t in closed_t if t["pnl"] is not None)
     prices_complete = all(t.get("value") is not None for t in open_t)
     unrealized = sum(t["pnl"] for t in open_t) if prices_complete else None
-    dividend_income = sum(
-        m["amount"] for m in list_cash_movements(limit=100000)
-        if m["kind"] == "dividend"
-    )
     total = (realized + unrealized + dividend_income) if unrealized is not None else None
     market_value = sum(t["value"] for t in open_t) if prices_complete else None
     realized_proceeds = sum(t["value"] for t in closed_t if t.get("value") is not None)
-    cash = cash_balance()
     total_assets = market_value + cash if market_value is not None else None
     return {
         "invested": invested,
